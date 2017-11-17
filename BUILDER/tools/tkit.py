@@ -9,14 +9,14 @@ binary file fmt:
 .db "Card pack description",0  ;variable width, null terminated.
 .dw number_of_cards_in_pack
 _data_field:
-.db rank
-.dw offset_to_name_string
-.db num_up
-.db num_right
-.db num_down
-.db num_left
-.db element_by_enum
-.dw offst_to_image_data
+.db rank                   ;+0
+.dw offset_to_name_string  ;+1
+.db num_up                 ;+3
+.db num_right              ;+4
+.db num_down               ;+5
+.db num_left               ;+6
+.db element_by_enum        ;+7
+.dw offst_to_image_data    ;+8
 _string_data:
 .db "Zero-terminated names",0
 _image_data:
