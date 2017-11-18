@@ -26,7 +26,10 @@ _image_data:
 print "Loading libraries"
 from PIL import Image,ImageTk
 import Tkinter as tk
-import sys,os,subprocess,json,struct,tempfile
+import sys,os,subprocess,json,struct,tempfile,math
+
+IMG_WIDTH = 54
+IMG_HEIGHT = 54
 
 np  = os.path.normpath
 cwd = os.getcwd()
@@ -103,9 +106,9 @@ class CardCollection():
         if len(carddata_from_json) is not 9:
             raise ValueError("Input object not valid: "+str(carddata_from_json))
         i = carddata_from_json
-        if isinstance(i[7],basestring): i[7] = enum_elements.index(i[7].lower())
-        if isinstance(i[2],basestring): i[2] = enum_type.index(i[2].lower())
-        self.cardarray.append(_carddata(i[0],i[1],i[2],i[3],i[4],i[5],i[6],i[7],i[8]))
+        if isinstance(i[7],basestring): i[7] = enum_elements.index(i[7].lower().strip())
+        if isinstance(i[2],basestring): i[2] = enum_type.index(i[2].lower().strip())
+        self.cardarray.append(_carddata(i[0],i[1].strip(),i[2],i[3],i[4],i[5],i[6],i[7],i[8]))
         self.cardcount += 1
 
     def getdatasize(self):
@@ -150,10 +153,41 @@ class CardCollection():
 class _imagedata():
     def __init__(self,imgfile,pal):
         global TEMP_DIR
+        QUANTIZE_TO_COLORS = 6
+        iimg = Image.open(imgfile).convert("RGB")
+        timg = iimg.convert("P",palette=Image.ADAPTIVE,colors=QUANTIZE_TO_COLORS)
+        p = timg.palette.getdata()[1]
+        p2 = []
+        # convert string to (r,g,b) palette
+        for i in range(0,3*QUANTIZE_TO_COLORS,3):
+            r = ord(p[i+0])&~0x7
+            g = ord(p[i+1])&~0x7
+            b = ord(p[i+2])&~0x7
+            p2.append((r,g,b))
+        # find color nearest to 255,255,255 and make sure it is white
+        idx = 0
+        dist = 9999999
+        for i,a in enumerate(p2):
+            t = int(math.sqrt((255-a[0])**2 + (255-a[1])**2 + (255-a[2])**2)) 
+            if t<dist:
+                dist = t
+                idx = i
+        # convert color to nearest xlibc equivalent
+        p2[idx] = (255,255,255)  #nope. make it hawt pink
+        for i in range(len(p2)):
+            r,g,b = p2[i]
+            p2[i] = (r&~0x7,g&~0x7,b&~0x7)
+        p2 = list(set(p2))      #remove duplicates
+        p2 += [(255,255,255)]*(256-len(p2))
+        t = []
+        for i in p2[:256]:
+            for j in i:
+                t.append(j)
         pimg = Image.new('P',(16,16))
+        pimg.putpalette(t)   #change back to pimg.putpalette(pal) if needed
+        timg = quantizetopalette(iimg,pimg).convert("RGB")
         pimg.putpalette(pal)
-        iimg = Image.open(imgfile)
-        timg = quantizetopalette(iimg,pimg)
+        timg = quantizetopalette(timg,pimg)
         rdata = timg.tobytes()
         r = np(TEMP_DIR+"/r")
         c = np(TEMP_DIR+"/c")
@@ -289,9 +323,10 @@ if os.path.isfile(outfilename): os.remove(outfilename)
 xlcpal = []
 for i in range(256):
     t = i+i*256
-    r,g,b = (((t>>10)&0x1F)<<3,((t>>5)&0x1F)<<3,(t&0x1F)<<3)
-    xlcpal.append((r,g,b))
-
+    r,g,b = (((t>>11)&0x1F)<<3,((t>>5)&0x3F)<<2,(t&0x1F)<<3)
+    xlcpal.append((r|7,g|7,b|7))
+#    print str(format(i,'02x'))+':'+str((r|7,g|3,b|7))
+# rrrrrggggggbbbbb
 #Collect data    
 imlist = [i for i in os.listdir(ifpath) if i.endswith(".png")]
 imdata = [i for i in os.listdir(ifpath) if i.endswith(".json")]
@@ -302,9 +337,13 @@ with open(np(ifpath+"/"+imdata[0]),'r') as f:
 header = HeaderData(carddata[1],carddata[0])
 carddata = carddata[2:]
 ccoll = CardCollection()
+
 icoll = ImageCollection(xlcpal)
+print "Adding card data"
 for i in carddata: ccoll.addcard(i)
+print "Adding card images"
 for i in imlist:   icoll.addimg(np(ifpath+'/'+i))
+print "Size of image collection: "+str(len(icoll.tobytes()))
     
 data = header.tobytes(ccoll.cardcount) + ccoll.tobytes(header,icoll) + icoll.tobytes()
 #with open("temp",'wb') as f: f.write(data)

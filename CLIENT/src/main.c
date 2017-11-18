@@ -12,10 +12,10 @@
 #define GM_CARDPACKSELECT 4
 #define GM_CARDLISTER 5
 
-#define CARD_WIDTH 32
-#define CARD_HEIGHT 48
+#define CARD_WIDTH 52
+#define CARD_HEIGHT 52
 
-#define TRANSPARENT_COLOR 0xF8
+#define TRANSPARENT_COLOR 0xFF
 #define GREETINGS_DIALOG_TEXT_COLOR 0xDF
 #define FILE_EXPLORER_BGCOLOR 0xBF
 #define LIST_BACKGROUND_A 0x37
@@ -166,7 +166,7 @@ void main(void) {
 				centerxtext("Card Browser",5);
 				gfx_SetTextScale(1,1);
 				centerxtext((char*)(cardpack+17),30);
-				y = 50;
+				y = 45;
 				for (i=0;i<10;i++,y+=12) {
 					gfx_SetColor(alternatingfilebgcolors[i&1]);
 					gfx_SetTextFGColor(0x00);
@@ -183,35 +183,35 @@ void main(void) {
 				}
 				unpackcardgfx(curpage*10+curopt,0);
 				gfx_SetColor(0x00);
-				gfx_Rectangle_NoClip(4,179,34,50);
-				gfx_TransparentSprite((gfx_sprite_t*)tenimgstore,5,180);
+				gfx_Rectangle_NoClip(4,169,CARD_WIDTH+2,CARD_HEIGHT+2);
+				gfx_TransparentSprite((gfx_sprite_t*)tenimgstore,5,170);
 				gfx_SetTextFGColor(0x00);
 				
-				gfx_SetTextXY(50,188);
+				gfx_SetTextXY(70,188);
 				gfx_PrintChar(card_statmap[cur_card[6]]); //left
-				gfx_SetTextXY(58,180);
+				gfx_SetTextXY(78,180);
 				gfx_PrintChar(card_statmap[cur_card[3]]); //up
-				gfx_SetTextXY(58,196);
+				gfx_SetTextXY(78,196);
 				gfx_PrintChar(card_statmap[cur_card[5]]); //down
-				gfx_SetTextXY(66,188);
+				gfx_SetTextXY(86,188);
 				gfx_PrintChar(card_statmap[cur_card[4]]); //right
 				
 				
-				gfx_PrintStringXY("Rank: ",90,180);
+				gfx_PrintStringXY("Rank: ",100,180);
 				gfx_PrintUInt(cur_card[0],2);
 				
-				
-				
 				//
-				// Display other card stats here
+				//TODO: DISPLAY CARD ELEMENT, FIX COLOR PALETTE BUG IN CONVERTER
 				//
+				
 				gfx_SwapDraw();
 				k = kb_Data[1];
 				k7= kb_Data[7];
 				if (k&kb_Mode) gamemode=GM_CARDPACKSELECT;
 				if ((k7&kb_Up)&&curopt) curopt--;
 				if ((k7&kb_Down)&&curopt<(maxopt-1)) curopt++;
-				if (k7);
+				if ((k7&kb_Left)&&curpage) { curpage--;curopt=0; }
+				if ((k7&kb_Right)&&(curpage<(maxpage-1))) { curpage++;curopt=0;}
 				if (k|k7) keywait();
 				
 				
