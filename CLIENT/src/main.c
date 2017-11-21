@@ -78,7 +78,7 @@ void textscale1();
 void dmenu(char **strarr,uint8_t curopt,uint8_t maxopt);
 void drawbg();
 //***
-uint8_t *selectpack();
+char *selectpack();  //returns variable name of pack chosen
 uint8_t *getpackadr(char *varname);
 uint8_t *getdataadr(uint8_t *packadr);
 void getcarddata(uint8_t *packptr, uint8_t cardnum);
@@ -101,6 +101,7 @@ uint8_t main_menu_dest[] = {GM_GAMESELECT,GM_BROWSEPACK,GM_OPTIONS,GM_GAMEXIT};
 
 
 void main(void) {
+	char *varname;
 	uint8_t *sp,*packptr,i,copt,mopt;
 	kb_key_t k,k7;
 	
@@ -136,8 +137,8 @@ void main(void) {
 				gfx_PrintStringXY(VERSION_INFO,290,230);
 			}
 			else if (gamemode == GM_BROWSEPACK) {
-				if ((packptr = selectpack()) == NULL) { gamemode = GM_TITLE; continue; }
-				
+				if ((varname = selectpack()) == NULL) { gamemode = GM_TITLE; continue; }
+				packptr = getpackadr(varname);
 				
 				
 				
@@ -171,8 +172,9 @@ void drawbg() { gfx_FillScreen(FILE_EXPLORER_BGCOLOR); }
 
 //***
 
-uint8_t *selectpack() {
+char *selectpack() {
 	uint8_t *sp,*packptr,*cardptr,i;
+	int x;
 	char *vn;
 	kb_key_t k,k7;
 	
@@ -205,13 +207,24 @@ uint8_t *selectpack() {
 		gfx_PrintStringXY("Number of cards: ",5,95);
 		gfx_PrintUInt(cardptr[-2],3);
 		ctext("Card pack preview",110);
+		for(i=0,x=(LCD_WIDTH-(CARD_WIDTH+4)*5)/2;i<5;i++,x+=CARD_WIDTH+4) {
+			getcarddata(packptr,i);
+			if (tmpcard.rank) {
+				gfx_SetColor(0x00);
+				gfx_Rectangle_NoClip(x-1,119,CARD_WIDTH+2,CARD_HEIGHT+2);
+				gfx_TransparentSprite_NoClip((gfx_sprite_t*)tmpimg,x,120);
+			} else {
+				gfx_SetColor(FILE_EXPLORER_BGCOLOR);
+				gfx_FillRectangle_NoClip(x-1,119,CARD_WIDTH+2,CARD_HEIGHT+2);
+			}
+		}
 		
 		
 		gfx_SwapDraw();
 		
 		if (k|k7) keywait();
 		if (k&kb_Mode) return NULL;
-		if (k&kb_2nd) return packptr;
+		if (k&kb_2nd) return vn;
 		if ((k7&(kb_Left|kb_Up))&&curpack) curpack--;
 		if ((k7&(kb_Right|kb_Down))&&(curpack<(maxpack-1))) curpack++;
 	}
@@ -243,14 +256,24 @@ void getcarddata(uint8_t *pptr, uint8_t cardnum) {
 	if (cardnum >= cptr[-2]) return;
 	
 	if ( 0 == fmt ) {
-		//10b, 2b img offset
-		cptr += cardnum*10;
-		memcpy(&tmpcard,cptr,10);
-		tmpcard.name = ((char*)(pptr))+ ((uint16_t)(tmpcard.name));
-		dzx7_Turbo(pptr+((uint16_t)(tmpcard.img)),tmpimg);
+		//11b, 2b img offset
+		cptr += cardnum*11;
+		tmpcard.rank = cptr[0];
+		tmpcard.name = (char*)(pptr + *((uint16_t*)(cptr+1)));
+		tmpcard.type = cptr[3];
+		tmpcard.top  = cptr[4];
+		tmpcard.right= cptr[5];
+		tmpcard.down = cptr[6];
+		tmpcard.left = cptr[7];
+		tmpcard.element=cptr[8];
+		tmpcard.img  = (gfx_sprite_t*)tmpimg;
+		//dbg_sprintf(dbgout,"img %i adr %x\n",cardnum,pptr+*((uint16_t*)(cptr+9)));
+		dzx7_Turbo(pptr+*((uint16_t*)(cptr+9)),tmpimg+2);
+		tmpimg[0] = CARD_WIDTH;
+		tmpimg[1] = CARD_HEIGHT;
 	}
 	else if (1 == fmt) {
-		//11b, 1b file id, 2b img offset
+		//12b, 1b file id, 2b img offset
 	}
 }
 

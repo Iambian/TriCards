@@ -8,7 +8,7 @@
 # ----------------------------
 
 NAME        ?= TRICARDS
-DEBUGMODE   ?= NDEBUG
+DEBUGMODE   ?= DEBUG
 COMPRESSED  ?= NO
 ICON        ?= iconc.png
 DESCRIPTION ?= "It's like there's 3x3 cards"
