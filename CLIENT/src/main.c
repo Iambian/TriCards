@@ -22,13 +22,15 @@
 #define TRANSPARENT_COLOR 0xFF
 #define GREETINGS_DIALOG_TEXT_COLOR 0xDF
 #define FILE_EXPLORER_BGCOLOR 0xBF
-#define LIST_BACKGROUND_A 0x37
-#define LIST_BACKGROUND_B 0x55
-#define LIST_BACKGROUND_S 0x09
+#define LIST_BG_A 0x1D
+#define LIST_BG_B 0x5E
+#define LIST_BG_S 0x0A
+#define LIST_TX_S 0xE7
+#define LIST_LINE_HEIGHT 12
 
 #define MENU_TEXT_COLOR 0x00
-#define MENU_TEXT_SELECTED 0x0C
-
+#define MENU_TEXT_SELECTED 0x8B
+#define OPTIONS_PER_PAGE 11
 
 #define GMBOX_X (LCD_WIDTH/4)
 #define GMBOX_Y (LCD_HEIGHT/2-LCD_HEIGHT/8)
@@ -53,12 +55,14 @@
 #include <decompress.h>
 #include <fileioc.h>
 
+#include "gfx/element_gfx.h"
+
 enum cardtype {monster=0,boss,gf,player};
 enum element {none=0,poison,fire,wind,earth,water,ice,thunder,holy};
 
 typedef struct card_t {
 	uint8_t rank; char* name; uint8_t type;
-	uint8_t top; uint8_t right; uint8_t down; uint8_t left;
+	uint8_t up; uint8_t right; uint8_t down; uint8_t left;
 	uint8_t element;
 	gfx_sprite_t* img;
 } card_t;
@@ -76,6 +80,7 @@ void ctext(char *s,uint8_t y);
 void textscale2();
 void textscale1();
 void dmenu(char **strarr,uint8_t curopt,uint8_t maxopt);
+void pcharxy(char c,int x,uint8_t y);
 void drawbg();
 //***
 char *selectpack();  //returns variable name of pack chosen
@@ -92,19 +97,24 @@ uint8_t curpack,maxpack;
 uint8_t gamemode;
 uint8_t tmpimg[CARD_WIDTH*CARD_HEIGHT+2];
 card_t tmpcard;
+card_t selcard;
+uint8_t *elemdat[9];
 
 /* Put all constants here */
 char *card_pack_header = "TriCrPak";
 char *main_menu_text[] = {"Start Game","Card Pack Browser","Options","Quit Game"};
 uint8_t main_menu_dest[] = {GM_GAMESELECT,GM_BROWSEPACK,GM_OPTIONS,GM_GAMEXIT};
-
-
-
+uint8_t listcolors[] = {LIST_BG_A,LIST_BG_B};
+char stat2char[] = {'0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F'};
+char *cardtype[] = {"Monster","Boss","GF","Player"};
+uint8_t *elemcdat[] = {	blanksym_compressed,poison_compressed,fire_compressed,
+						wind_compressed,earth_compressed,water_compressed,
+						ice_compressed,thunder_compressed,holy_compressed};
 void main(void) {
-	char *varname;
-	uint8_t *sp,*packptr,i,copt,mopt;
+	char *varname,*cardtypestr;
+	uint8_t *sp,*packptr,*dataptr,i,j,y,copt,mopt,cpage,mpage;
+	int x;
 	kb_key_t k,k7;
-	
 	
 	/* Initialize system */
 	gfx_Begin();
@@ -112,10 +122,13 @@ void main(void) {
 	gfx_SetTransparentColor(TRANSPARENT_COLOR);
 	ti_CloseAll();
 	/* Initialize variables */
-	copt = mopt = gamemode = curpack = maxpack = 0;
-	sp = NULL;
+	cpage = mpage = copt = mopt = gamemode = curpack = maxpack = 0;
+	sp = packptr = dataptr = NULL;
 	imgpack = malloc(((CARD_WIDTH*CARD_HEIGHT)+2)*10);
 	while ( ti_Detect(&sp,card_pack_header) ) { maxpack++; }
+	dataptr = malloc(9*(8*8+2));
+	for(i=0;i<9;i++,dataptr+=66) dzx7_Turbo(elemcdat[i],elemdat[i]=dataptr);
+	
 	
 	if (maxpack) {
 		while (1) {
@@ -139,13 +152,62 @@ void main(void) {
 			else if (gamemode == GM_BROWSEPACK) {
 				if ((varname = selectpack()) == NULL) { gamemode = GM_TITLE; continue; }
 				packptr = getpackadr(varname);
+				dataptr = getdataadr(packptr);
+				copt = cpage = 0;
+				mopt = (dataptr[-2]>=OPTIONS_PER_PAGE)?OPTIONS_PER_PAGE:dataptr[-2];
+				mpage= dataptr[-2]/OPTIONS_PER_PAGE;
+				gamemode = GM_CARDLISTER;
+			}
+			else if (gamemode == GM_CARDLISTER) {
+				drawbg();
+				textscale2();
+				ctext("Card Browser",5);
+				textscale1();
+				gfx_PrintStringXY("Showing page ",5,30);
+				gfx_PrintUInt(cpage+1,2);
+				gfx_PrintString(" of ");
+				gfx_PrintUInt(mpage,2);
+				for(i=0,j=cpage*OPTIONS_PER_PAGE,y=50;i<OPTIONS_PER_PAGE;i++,j++,y+=LIST_LINE_HEIGHT){
+					gfx_SetColor(listcolors[i&1]);
+					if (i==copt) {
+						gfx_SetColor(LIST_BG_S);
+						gfx_SetTextFGColor(LIST_TX_S);
+					}
+					gfx_FillRectangle_NoClip(5,y,200,LIST_LINE_HEIGHT);
+					getcarddata(packptr,j);
+					if (tmpcard.rank) gfx_PrintStringXY(tmpcard.name,10,y+2);
+					gfx_SetTextFGColor(MENU_TEXT_COLOR);
+				}
 				
-				
-				
-				
-				
-				
-				break;
+				getcarddata(packptr,cpage*OPTIONS_PER_PAGE+copt);
+				if (tmpcard.rank) {  //in case you browse an empty pack
+					gfx_SetColor(0x00);
+					cardtypestr = cardtype[tmpcard.type];
+					x = 200+(120-gfx_GetStringWidth(cardtypestr))/2;
+					gfx_PrintStringXY(cardtypestr,x,52);
+					
+					
+					
+					gfx_Rectangle_NoClip(234,65,CARD_WIDTH+2,CARD_HEIGHT+2);
+					gfx_TransparentSprite_NoClip((gfx_sprite_t*)tmpimg,235,66);
+					gfx_Rectangle_NoClip(207,127,43,40);
+					gfx_PrintStringXY("Stats",210,130);
+					pcharxy(stat2char[tmpcard.up]   ,220+5,140);
+					pcharxy(stat2char[tmpcard.right],228+5,148);
+					pcharxy(stat2char[tmpcard.down] ,220+5,156);
+					pcharxy(stat2char[tmpcard.left] ,212+5,148);
+					gfx_PrintStringXY("Rank ",260,130);
+					gfx_PrintUInt(tmpcard.rank,2);
+					gfx_PrintStringXY("Element",260,145);
+					if (tmpcard.element) {
+						gfx_TransparentSprite_NoClip((gfx_sprite_t*)elemdat[tmpcard.element],280,155);
+					} else gfx_PrintStringXY("N/A",275,155);
+				}
+				if (k&kb_Mode) gamemode = GM_BROWSEPACK;
+				if ((k7&kb_Up)&&copt) copt--;
+				if ((k7&kb_Down)&&copt<(mopt-1)) copt++;
+				if ((k7&kb_Left)&&cpage) { cpage--; mopt=OPTIONS_PER_PAGE;}
+				if ((k7&kb_Right)&&(cpage<(mpage-1))) cpage++;
 			}
 			else { break; }
 			gfx_SwapDraw();
@@ -168,6 +230,7 @@ void ctext(char* s,uint8_t y) {	gfx_PrintStringXY(s,(LCD_WIDTH-gfx_GetStringWidt
 void textscale2() { gfx_SetTextScale(2,2); }
 void textscale1() { gfx_SetTextScale(1,1); }
 void dmenu(char **s,uint8_t c,uint8_t m) { uint8_t i,y; textscale2(); for(i=0,y=(240-24*m)/2;i<m;i++,y+=24) {	if (i==c) gfx_SetTextFGColor(MENU_TEXT_SELECTED); ctext(s[i],y); gfx_SetTextFGColor(MENU_TEXT_COLOR); } textscale1(); }
+void pcharxy(char c,int x,uint8_t y) { gfx_SetTextXY(x,y); gfx_PrintChar(c); }
 void drawbg() { gfx_FillScreen(FILE_EXPLORER_BGCOLOR); }
 
 //***
@@ -218,8 +281,6 @@ char *selectpack() {
 				gfx_FillRectangle_NoClip(x-1,119,CARD_WIDTH+2,CARD_HEIGHT+2);
 			}
 		}
-		
-		
 		gfx_SwapDraw();
 		
 		if (k|k7) keywait();
@@ -261,7 +322,7 @@ void getcarddata(uint8_t *pptr, uint8_t cardnum) {
 		tmpcard.rank = cptr[0];
 		tmpcard.name = (char*)(pptr + *((uint16_t*)(cptr+1)));
 		tmpcard.type = cptr[3];
-		tmpcard.top  = cptr[4];
+		tmpcard.up   = cptr[4];
 		tmpcard.right= cptr[5];
 		tmpcard.down = cptr[6];
 		tmpcard.left = cptr[7];
