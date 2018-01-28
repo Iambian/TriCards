@@ -1,5 +1,8 @@
 /CLIENT/bin
 /CLIENT/obj
+/CLIENT/src/gfx/*.c
+/CLIENT/src/gfx/*.h
+/CLIENT/src/gfx/*.log
 /BUILDER/bin
 /BUILDER/obj
 /BUILDER/temp

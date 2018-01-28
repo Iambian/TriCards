@@ -57,6 +57,55 @@
 
 #include "gfx/element_gfx.h"
 
+
+/* Board positions: | 
+	10	1 2 3	15  | (005,032) (000,000) (000,000) (000,000) (260,032)
+	11	     	16  | (005,056)                               (260,056)
+	12	4 5 6	17  | (005,080) (000,000) (000,000) (000,000) (260,080)
+	13	     	18  | (005,104)                               (260,104)
+	14	7 8 9	19  | (005,128) (000,000) (000,000) (000,000) (260,128)
+	3x3 grid with 4px gaps: +0,+0: +60,+60, +120,+120 grid area 56*3+4*2=176
+	Centered top left at (72,32)
+	Sides are off from the edge by 4px, so X:5,260; Y:32,152
+	Cards on sides are overlapping so based on Y. 5 steps is +24 per iter.
+*/
+#define GRIDX 72
+#define GRIDY 32
+#define GRIDV 60
+#define PLAYERX 5
+#define PLAYERY 32
+#define PLAYERV 24
+#define ENEMYX 260
+#define ENEMYY 32
+#define ENEMYV 24
+
+int posarr[] = {
+	0,0,
+	GRIDX+GRIDV*0,GRIDY+GRIDV*0,
+	GRIDX+GRIDV*1,GRIDY+GRIDV*0,
+	GRIDX+GRIDV*2,GRIDY+GRIDV*0,
+	GRIDX+GRIDV*0,GRIDY+GRIDV*1,
+	GRIDX+GRIDV*1,GRIDY+GRIDV*1,
+	GRIDX+GRIDV*2,GRIDY+GRIDV*1,
+	GRIDX+GRIDV*0,GRIDY+GRIDV*2,
+	GRIDX+GRIDV*1,GRIDY+GRIDV*2,
+	GRIDX+GRIDV*2,GRIDY+GRIDV*2,
+	
+	PLAYERX,PLAYERY+PLAYERV*0,
+	PLAYERX,PLAYERY+PLAYERV*1,
+	PLAYERX,PLAYERY+PLAYERV*2,
+	PLAYERX,PLAYERY+PLAYERV*3,
+	PLAYERX,PLAYERY+PLAYERV*4,
+	
+	ENEMYX,ENEMYY+ENEMYV*0,
+	ENEMYX,ENEMYY+ENEMYV*1,
+	ENEMYX,ENEMYY+ENEMYV*2,
+	ENEMYX,ENEMYY+ENEMYV*3,
+	ENEMYX,ENEMYY+ENEMYV*4,
+	
+};
+
+
 enum cardtype {monster=0,boss,gf,player};
 enum element {none=0,poison,fire,wind,earth,water,ice,thunder,holy};
 
@@ -66,6 +115,14 @@ typedef struct card_t {
 	uint8_t element;
 	gfx_sprite_t* img;
 } card_t;
+
+typedef struct metacard_t {
+	card_t c;
+	int x;
+	int y;
+	uint8_t playstate; //0=hiddenInHand 1=showingInhand 2=onField
+	uint8_t gridpos;
+} metacard_t;
 
 struct {
 	int unsigned wins;
@@ -86,7 +143,8 @@ void drawbg();
 char *selectpack();  //returns variable name of pack chosen
 uint8_t *getpackadr(char *varname);
 uint8_t *getdataadr(uint8_t *packadr);
-void getcarddata(uint8_t *packptr, uint8_t cardnum);
+void getcarddata(uint8_t *packptr, uint8_t cardnum); //from file to tmpcard
+void putcarddata(uint8_t cardslot);                  //tmpcard/tmpimg to slotnum
 
 
 
@@ -96,9 +154,12 @@ uint8_t *imgpack;
 uint8_t curpack,maxpack;
 uint8_t gamemode;
 uint8_t tmpimg[CARD_WIDTH*CARD_HEIGHT+2];
+
 card_t tmpcard;
 card_t selcard;
 uint8_t *elemdat[9];
+metacard_t *cardbuf[10];
+metacard_t tmpmeta;
 
 /* Put all constants here */
 char *card_pack_header = "TriCrPak";
@@ -116,6 +177,7 @@ void main(void) {
 	int x;
 	kb_key_t k,k7;
 	
+	
 	/* Initialize system */
 	gfx_Begin();
 	gfx_SetDrawBuffer();
@@ -124,7 +186,8 @@ void main(void) {
 	/* Initialize variables */
 	cpage = mpage = copt = mopt = gamemode = curpack = maxpack = 0;
 	sp = packptr = dataptr = NULL;
-	imgpack = malloc(((CARD_WIDTH*CARD_HEIGHT)+2)*10);
+	for (i=0;i<10;i++) cardbuf[i] = malloc(sizeof tmpmeta); //card data buffer
+	imgpack = malloc(((CARD_WIDTH*CARD_HEIGHT)+2)*10);      //card image buffer
 	while ( ti_Detect(&sp,card_pack_header) ) { maxpack++; }
 	dataptr = malloc(9*(8*8+2));
 	for(i=0;i<9;i++,dataptr+=66) dzx7_Turbo(elemcdat[i],elemdat[i]=dataptr);
@@ -136,6 +199,7 @@ void main(void) {
 			k = kb_Data[1];
 			k7= kb_Data[7];
 			if (k|k7) keywait();
+			//---
 			if (gamemode==GM_TITLE) {
 				if (k&kb_2nd) { gamemode = main_menu_dest[copt]; continue; }
 				if (k&kb_Mode) { break; }
@@ -186,8 +250,6 @@ void main(void) {
 					x = 200+(120-gfx_GetStringWidth(cardtypestr))/2;
 					gfx_PrintStringXY(cardtypestr,x,52);
 					
-					
-					
 					gfx_Rectangle_NoClip(234,65,CARD_WIDTH+2,CARD_HEIGHT+2);
 					gfx_TransparentSprite_NoClip((gfx_sprite_t*)tmpimg,235,66);
 					gfx_Rectangle_NoClip(207,127,43,40);
@@ -208,6 +270,31 @@ void main(void) {
 				if ((k7&kb_Down)&&copt<(mopt-1)) copt++;
 				if ((k7&kb_Left)&&cpage) { cpage--; mopt=OPTIONS_PER_PAGE;}
 				if ((k7&kb_Right)&&(cpage<(mpage-1))) cpage++;
+			}
+			else if (gamemode == GM_GAMESELECT) {
+				if ((packptr = getpackadr(stats.fn)) == NULL) {
+					if ((varname = selectpack()) == NULL) { gamemode = GM_TITLE; continue; }
+					packptr = getpackadr(varname);
+					dataptr = getdataadr(packptr);
+					strncpy(stats.fn,varname,9);
+					stats.fn[9] = 0x00;  //ensure null terminator is added
+				}
+				//A game mode should have been selected, but let's go full
+				//random in our testing.
+				for (i=0;i<10;i++) {
+					getcarddata(packptr,randInt(0,dataptr[-2]));
+					putcarddata(i);
+				}
+				
+				
+				
+				
+				
+				
+				
+				
+				
+				
 			}
 			else { break; }
 			gfx_SwapDraw();
@@ -307,7 +394,7 @@ uint8_t *getdataadr(uint8_t *pptr) {
 	return pptr+(17+1+2)+i;
 }
 
-//check card rank. Is zero if failure
+//on return, check output card rank. Failed to locate card if rank==0
 void getcarddata(uint8_t *pptr, uint8_t cardnum) {
 	uint8_t *cptr,fmt,i;
 	
@@ -337,4 +424,25 @@ void getcarddata(uint8_t *pptr, uint8_t cardnum) {
 		//12b, 1b file id, 2b img offset
 	}
 }
+
+ //tmpcard/tmpimg to slotnum
+void putcarddata(uint8_t cardslot) {
+	uint8_t i;
+	uint8_t *imgpckptr;
+	metacard_t *carddata;
+	
+	//load image data to image pack
+	imgpckptr = imgpack+(sizeof(tmpimg)*cardslot);
+	memcpy(imgpckptr,tmpimg,sizeof tmpimg);
+	//load card data to card pack
+	carddata = cardbuf[cardslot];
+	memset(carddata,0,sizeof carddata);
+	memcpy(&carddata->c,&tmpcard,sizeof tmpcard);
+}
+
+
+
+
+
+
 

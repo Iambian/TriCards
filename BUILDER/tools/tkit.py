@@ -11,12 +11,13 @@ binary file fmt:
 _data_field:
 .db rank                   ;+0
 .dw offset_to_name_string  ;+1
-.db num_up                 ;+3
-.db num_right              ;+4
-.db num_down               ;+5
-.db num_left               ;+6
-.db element_by_enum        ;+7
-.dw offst_to_image_data    ;+8
+.db type                   :+3
+.db num_up                 ;+4
+.db num_right              ;+5
+.db num_down               ;+6
+.db num_left               ;+7
+.db element_by_enum        ;+8
+.dw offst_to_image_data    ;+9
 _string_data:
 .db "Zero-terminated names",0
 _image_data:
@@ -112,8 +113,8 @@ class CardCollection():
         self.cardcount += 1
 
     def getdatasize(self):
-        #db rank; dw sofs, db u,r,d,l,e; dw iofs = 10 bytes
-        return 10*self.cardcount
+        #db rank; dw sofs, db t,u,r,d,l,e; dw iofs = 11 bytes
+        return 11*self.cardcount
         
     def getstringsize(self):
         #len + 1 for nul
@@ -137,6 +138,7 @@ class CardCollection():
         for i in self.cardarray:
             t  = struct.pack("B",i.rank)
             t += struct.pack("<H",header.getsize()+self.getdatasize()+self.getstringoffset(i.name))
+            t += struct.pack("B",i.type)
             t += struct.pack("B",i.up)
             t += struct.pack("B",i.right)
             t += struct.pack("B",i.down)
