@@ -14,7 +14,12 @@
 #define GM_CARDLISTER 5
 #define GM_OPTIONS 6
 #define GM_GAMESELECT 7
+#define GM_GAMEINPROGRESS 8
 #define GM_GAMEXIT 255
+
+#define GAMEBOARD_BG 0xC5
+#define PLAYER1_BG 0xF4
+#define PLAYER2_BG 0x9F
 
 #define CARD_WIDTH 52
 #define CARD_HEIGHT 52
@@ -56,6 +61,7 @@
 #include <fileioc.h>
 
 #include "gfx/element_gfx.h"
+#include "gfx/num_gfx.h"
 
 
 /* Board positions: | 
@@ -74,14 +80,14 @@
 #define GRIDV 60
 #define PLAYERX 5
 #define PLAYERY 32
-#define PLAYERV 24
+#define PLAYERV 30
 #define ENEMYX 260
 #define ENEMYY 32
-#define ENEMYV 24
+#define ENEMYV 30
 
 int posarr[] = {
-	0,0,
-	GRIDX+GRIDV*0,GRIDY+GRIDV*0,
+	0,0,                         //0
+	GRIDX+GRIDV*0,GRIDY+GRIDV*0, //1
 	GRIDX+GRIDV*1,GRIDY+GRIDV*0,
 	GRIDX+GRIDV*2,GRIDY+GRIDV*0,
 	GRIDX+GRIDV*0,GRIDY+GRIDV*1,
@@ -91,13 +97,13 @@ int posarr[] = {
 	GRIDX+GRIDV*1,GRIDY+GRIDV*2,
 	GRIDX+GRIDV*2,GRIDY+GRIDV*2,
 	
-	PLAYERX,PLAYERY+PLAYERV*0,
+	PLAYERX,PLAYERY+PLAYERV*0, //10
 	PLAYERX,PLAYERY+PLAYERV*1,
 	PLAYERX,PLAYERY+PLAYERV*2,
 	PLAYERX,PLAYERY+PLAYERV*3,
 	PLAYERX,PLAYERY+PLAYERV*4,
 	
-	ENEMYX,ENEMYY+ENEMYV*0,
+	ENEMYX,ENEMYY+ENEMYV*0, //15
 	ENEMYX,ENEMYY+ENEMYV*1,
 	ENEMYX,ENEMYY+ENEMYV*2,
 	ENEMYX,ENEMYY+ENEMYV*3,
@@ -122,6 +128,7 @@ typedef struct metacard_t {
 	int y;
 	uint8_t playstate; //0=hiddenInHand 1=showingInhand 2=onField
 	uint8_t gridpos;
+	uint8_t isplayer1;
 } metacard_t;
 
 struct {
@@ -145,7 +152,8 @@ uint8_t *getpackadr(char *varname);
 uint8_t *getdataadr(uint8_t *packadr);
 void getcarddata(uint8_t *packptr, uint8_t cardnum); //from file to tmpcard
 void putcarddata(uint8_t cardslot);                  //tmpcard/tmpimg to slotnum
-
+void redrawboard();  //draws game board and cards in position.
+void drawcard(metacard_t *card);
 
 
 
@@ -160,6 +168,7 @@ card_t selcard;
 uint8_t *elemdat[9];
 metacard_t *cardbuf[10];
 metacard_t tmpmeta;
+gfx_sprite_t *numtiles[11];
 
 /* Put all constants here */
 char *card_pack_header = "TriCrPak";
@@ -187,7 +196,12 @@ void main(void) {
 	cpage = mpage = copt = mopt = gamemode = curpack = maxpack = 0;
 	sp = packptr = dataptr = NULL;
 	for (i=0;i<10;i++) cardbuf[i] = malloc(sizeof tmpmeta); //card data buffer
+	dataptr = malloc((8*8+2)*11);  //sizeof 11 8x8 sprite objects
+	for (i=0;i<11;i++,dataptr+=(8*8+2)) {
+		dzx7_Turbo(numtiles_tiles_compressed[i],numtiles[i] =(void*) dataptr);
+	}
 	imgpack = malloc(((CARD_WIDTH*CARD_HEIGHT)+2)*10);      //card image buffer
+	
 	while ( ti_Detect(&sp,card_pack_header) ) { maxpack++; }
 	dataptr = malloc(9*(8*8+2));
 	for(i=0;i<9;i++,dataptr+=66) dzx7_Turbo(elemcdat[i],elemdat[i]=dataptr);
@@ -284,17 +298,18 @@ void main(void) {
 				for (i=0;i<10;i++) {
 					getcarddata(packptr,randInt(0,dataptr[-2]));
 					putcarddata(i);
+					cardbuf[i]->gridpos = i+10;
+					cardbuf[i]->isplayer1 = (i<5)?1:0;
+					cardbuf[i]->x = posarr[(i+10)*2];
+					cardbuf[i]->y = posarr[(i+10)*2+1];
 				}
+				gamemode = GM_GAMEINPROGRESS;
+				continue;				
 				
-				
-				
-				
-				
-				
-				
-				
-				
-				
+			}
+			else if (gamemode == GM_GAMEINPROGRESS) {
+				redrawboard();
+				if (k&kb_Mode) { keywait(); gamemode = GM_TITLE;}
 			}
 			else { break; }
 			gfx_SwapDraw();
@@ -435,14 +450,49 @@ void putcarddata(uint8_t cardslot) {
 	imgpckptr = imgpack+(sizeof(tmpimg)*cardslot);
 	memcpy(imgpckptr,tmpimg,sizeof tmpimg);
 	//load card data to card pack
+	tmpcard.img = (void*) imgpckptr;
 	carddata = cardbuf[cardslot];
 	memset(carddata,0,sizeof carddata);
 	memcpy(&carddata->c,&tmpcard,sizeof tmpcard);
 }
 
+void redrawboard() {
+	uint8_t i;
+	int x,y;
+	gfx_FillScreen(GAMEBOARD_BG);
+	
+	gfx_SetColor(0x00);  //set later to card border color
+	for (i=2;i<20;i+=2) {
+		gfx_Rectangle_NoClip(posarr[i],posarr[i+1],CARD_WIDTH+4,CARD_HEIGHT+4);
+	}
+	
+	for (i=0;i<10;i++) {
+		drawcard(cardbuf[i]);
+	}
+}
 
+void drawcard(metacard_t *card) {
+		int x,y;
+		card_t *cdata;
+		
+		x = card->x;
+		y = card->y;
+		cdata = &card->c;
 
+		gfx_SetColor(0x00);  //set later to card border color
+		gfx_Rectangle_NoClip(x,y,CARD_WIDTH+4,CARD_HEIGHT+4);
+		
+		//if card is showing
+		gfx_SetColor((card->isplayer1)?PLAYER1_BG:PLAYER2_BG);
+		gfx_FillRectangle_NoClip(x+1,y+1,CARD_WIDTH+2,CARD_HEIGHT+2);
+		gfx_TransparentSprite_NoClip(cdata->img,x+2,y+2);
+		
+		gfx_TransparentSprite_NoClip(numtiles[cdata->up],x+2+8,y+2+0);
+		gfx_TransparentSprite_NoClip(numtiles[cdata->right],x+2+16,y+2+8);
+		gfx_TransparentSprite_NoClip(numtiles[cdata->down],x+2+8,y+2+16);
+		gfx_TransparentSprite_NoClip(numtiles[cdata->left],x+2,y+2+8);
 
+}
 
 
 
