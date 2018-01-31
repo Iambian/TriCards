@@ -14,12 +14,14 @@
 #define GM_CARDLISTER 5
 #define GM_OPTIONS 6
 #define GM_GAMESELECT 7
-#define GM_GAMEINPROGRESS 8
+#define GM_SELECTINGCARDS 8
+#define GM_SELECTINGPLACE 9
 #define GM_GAMEXIT 255
 
 #define GAMEBOARD_BG 0xC5
 #define PLAYER1_BG 0xF4
 #define PLAYER2_BG 0x9F
+#define CARD_SEL_FG 0x8C
 
 #define CARD_WIDTH 52
 #define CARD_HEIGHT 52
@@ -62,6 +64,7 @@
 
 #include "gfx/element_gfx.h"
 #include "gfx/num_gfx.h"
+#include "gfx/misc_gfx.h"
 
 
 /* Board positions: | 
@@ -137,6 +140,10 @@ struct {
 	char fn[10];  //Name of most recently-opened card pack
 } stats;
 
+enum directionValues { DIR_NONE = 0,DIR_DOWN,DIR_LEFT,DIR_RIGHT,DIR_UP };
+	
+	
+
 /* Put your function prototypes here */
 void keywait();
 void waitanykey();
@@ -153,8 +160,8 @@ uint8_t *getdataadr(uint8_t *packadr);
 void getcarddata(uint8_t *packptr, uint8_t cardnum); //from file to tmpcard
 void putcarddata(uint8_t cardslot);                  //tmpcard/tmpimg to slotnum
 void redrawboard();  //draws game board and cards in position.
-void drawcard(metacard_t *card);
-
+void drawcard(metacard_t *card,bool selected);
+uint8_t selectfromhand(uint8_t direction); //uses direection, selcard, curplayer
 
 
 /* Put all your globals here */
@@ -162,13 +169,15 @@ uint8_t *imgpack;
 uint8_t curpack,maxpack;
 uint8_t gamemode;
 uint8_t tmpimg[CARD_WIDTH*CARD_HEIGHT+2];
+uint8_t selcard;    //0-9
+uint8_t curplayer;  //0=player1, 1=player2
 
 card_t tmpcard;
-card_t selcard;
 uint8_t *elemdat[9];
 metacard_t *cardbuf[10];
 metacard_t tmpmeta;
 gfx_sprite_t *numtiles[11];
+gfx_sprite_t *cardback;
 
 /* Put all constants here */
 char *card_pack_header = "TriCrPak";
@@ -183,9 +192,10 @@ uint8_t *elemcdat[] = {	blanksym_compressed,poison_compressed,fire_compressed,
 void main(void) {
 	char *varname,*cardtypestr;
 	uint8_t *sp,*packptr,*dataptr,i,j,y,copt,mopt,cpage,mpage;
+	uint8_t cardposbackup;
+	metacard_t card;
 	int x;
 	kb_key_t k,k7;
-	
 	
 	/* Initialize system */
 	gfx_Begin();
@@ -193,7 +203,7 @@ void main(void) {
 	gfx_SetTransparentColor(TRANSPARENT_COLOR);
 	ti_CloseAll();
 	/* Initialize variables */
-	cpage = mpage = copt = mopt = gamemode = curpack = maxpack = 0;
+	cardposbackup = cpage = mpage = copt = mopt = gamemode = curpack = maxpack = 0;
 	sp = packptr = dataptr = NULL;
 	for (i=0;i<10;i++) cardbuf[i] = malloc(sizeof tmpmeta); //card data buffer
 	dataptr = malloc((8*8+2)*11);  //sizeof 11 8x8 sprite objects
@@ -201,6 +211,7 @@ void main(void) {
 		dzx7_Turbo(numtiles_tiles_compressed[i],numtiles[i] =(void*) dataptr);
 	}
 	imgpack = malloc(((CARD_WIDTH*CARD_HEIGHT)+2)*10);      //card image buffer
+	dzx7_Turbo(cardback_compressed,cardback = malloc(CARD_WIDTH*CARD_HEIGHT+2));
 	
 	while ( ti_Detect(&sp,card_pack_header) ) { maxpack++; }
 	dataptr = malloc(9*(8*8+2));
@@ -302,14 +313,63 @@ void main(void) {
 					cardbuf[i]->isplayer1 = (i<5)?1:0;
 					cardbuf[i]->x = posarr[(i+10)*2];
 					cardbuf[i]->y = posarr[(i+10)*2+1];
+					cardbuf[i]->playstate = 0;  //0 or 1 depending on rules?
+					
 				}
-				gamemode = GM_GAMEINPROGRESS;
+				curplayer = 0;
+				selcard = 0;
+				selcard = selectfromhand(DIR_NONE); //Ensures 1st card P1 or P2
+				gamemode = GM_SELECTINGCARDS;
 				continue;				
 				
 			}
-			else if (gamemode == GM_GAMEINPROGRESS) {
+			else if (gamemode == GM_SELECTINGCARDS) {
+				i = 255;
+				if (k&kb_2nd) {
+					cardposbackup = cardbuf[selcard]->gridpos;
+					cardbuf[selcard]->gridpos = 5;
+					gamemode = GM_SELECTINGPLACE;
+				}
+				if (k&kb_Mode) gamemode = GM_TITLE;
+				if (k7&kb_Up) i = selectfromhand(DIR_UP);
+				if (k7&kb_Down) i = selectfromhand(DIR_DOWN);
+				if (i < 10) selcard = i;
 				redrawboard();
-				if (k&kb_Mode) { keywait(); gamemode = GM_TITLE;}
+			}
+			else if (gamemode == GM_SELECTINGPLACE) {
+				
+				if (k&kb_Mode) {
+					cardbuf[selcard]->gridpos = cardposbackup;
+					gamemode = GM_SELECTINGCARDS;
+				}
+				i = cardbuf[selcard]->gridpos;
+				if ((k7&kb_Up)&&(i>3)) i -= 3;
+				if ((k7&kb_Down)&&(i<7)) i += 3;
+				if ((k7&kb_Left)&&((i-1)%3)) i -= 1;
+				if ((k7&kb_Right)&&(~(i-1)%3)) i += 1;
+				cardbuf[selcard]->gridpos = i;
+				if (k&kb_2nd) {
+					for (j=0;j<10;j++) {
+						if (j==selcard) continue;
+						if (cardbuf[selcard]->gridpos == cardbuf[j]->gridpos) {
+							j = 255;
+							break;
+						}
+					}
+					if (j<11) {
+						cardbuf[selcard]->playstate = 2;
+						//
+						// You'll do battle/fight logic here and
+						// decide if a winner has been found.
+						//
+						curplayer = !curplayer;
+						selcard = 0;
+						selcard = selectfromhand(DIR_NONE);
+						gamemode = GM_SELECTINGCARDS;
+					}
+				}
+				
+				redrawboard();
 			}
 			else { break; }
 			gfx_SwapDraw();
@@ -457,7 +517,7 @@ void putcarddata(uint8_t cardslot) {
 }
 
 void redrawboard() {
-	uint8_t i;
+	uint8_t i,t;
 	int x,y;
 	gfx_FillScreen(GAMEBOARD_BG);
 	
@@ -467,32 +527,84 @@ void redrawboard() {
 	}
 	
 	for (i=0;i<10;i++) {
-		drawcard(cardbuf[i]);
+		if (i != selcard) drawcard(cardbuf[i],0);
 	}
+	if (selcard<10) drawcard(cardbuf[selcard],1);
+	
 }
 
-void drawcard(metacard_t *card) {
-		int x,y;
+void drawcard(metacard_t *card, bool selected) {
+		int x,y,cx,cy;
+		uint8_t gpos;
 		card_t *cdata;
 		
 		x = card->x;
 		y = card->y;
-		cdata = &card->c;
-
-		gfx_SetColor(0x00);  //set later to card border color
-		gfx_Rectangle_NoClip(x,y,CARD_WIDTH+4,CARD_HEIGHT+4);
+		cx = posarr[card->gridpos*2];
+		cy = posarr[card->gridpos*2+1];
+		if (x != cx) x = cx;  //Later change these to fancier compares to let
+		if (y != cy) y = cy;  //cards slide across the game board
+		card->x = x;
+		card->y = y;
 		
-		//if card is showing
+		cdata = &card->c;
+		if (selected) {
+			gpos = card->gridpos;
+			if (gpos > 9 && gpos < 15) x+=5;
+			if (gpos >14) x-=5;
+		}
 		gfx_SetColor((card->isplayer1)?PLAYER1_BG:PLAYER2_BG);
 		gfx_FillRectangle_NoClip(x+1,y+1,CARD_WIDTH+2,CARD_HEIGHT+2);
-		gfx_TransparentSprite_NoClip(cdata->img,x+2,y+2);
+		if (card->playstate >0 || selected) {
+			//if card is showing
+			gfx_TransparentSprite_NoClip(cdata->img,x+2,y+2);
+			
+			gfx_TransparentSprite_NoClip(numtiles[cdata->up],x+2+8,y+2+0);
+			gfx_TransparentSprite_NoClip(numtiles[cdata->right],x+2+16,y+2+8);
+			gfx_TransparentSprite_NoClip(numtiles[cdata->down],x+2+8,y+2+16);
+			gfx_TransparentSprite_NoClip(numtiles[cdata->left],x+2,y+2+8);
+			
+			if (cdata->element) {
+				gfx_TransparentSprite_NoClip((gfx_sprite_t*)elemdat[cdata->element],x+44,y+44);
+			}
+		}
+		else {
+			//If card is in defense mode
+			gfx_TransparentSprite_NoClip(cardback,x+2,y+2);
+		}
 		
-		gfx_TransparentSprite_NoClip(numtiles[cdata->up],x+2+8,y+2+0);
-		gfx_TransparentSprite_NoClip(numtiles[cdata->right],x+2+16,y+2+8);
-		gfx_TransparentSprite_NoClip(numtiles[cdata->down],x+2+8,y+2+16);
-		gfx_TransparentSprite_NoClip(numtiles[cdata->left],x+2,y+2+8);
+		if (selected) {
+			gfx_SetColor(CARD_SEL_FG);
+			gfx_Rectangle_NoClip(x+1,y+1,CARD_WIDTH+2,CARD_HEIGHT+2);
+		} else {
+			gfx_SetColor(0x00);  //set later to card border color
+		}
+		gfx_Rectangle_NoClip(x,y,CARD_WIDTH+4,CARD_HEIGHT+4);
 
 }
 
-
+//returns 0-9 for selectable card slot, or -1 if card not findable.
+uint8_t selectfromhand(uint8_t direction) {
+	uint8_t i,t,found;
+	metacard_t *curcard;
+	found = 255;
+	
+	for (i=0;i<10;i++) {
+		curcard = cardbuf[i];
+		if ((curcard->isplayer1==curplayer)||(curcard->playstate > 1)) continue;
+		if (direction == DIR_UP) {
+			if (i>=selcard) break;
+			found = i;
+		}
+		else if (direction == DIR_DOWN) {
+			found = i;
+			if (i>selcard) break;
+		}
+		else {
+			found = i;
+			if (i>=selcard) break;
+		}
+	}
+	return found;
+}
 
