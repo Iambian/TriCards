@@ -117,6 +117,10 @@ int posarr[] = {
 
 enum cardtype {monster=0,boss,gf,player};
 enum element {none=0,poison,fire,wind,earth,water,ice,thunder,holy};
+enum directionValues { DIR_NONE = 0,DIR_DOWN,DIR_LEFT,DIR_RIGHT,DIR_UP };
+enum playRuleFlags { RULE_OPEN = 1, RULE_SAME = 2, RULE_SAMEWALL = 4,
+					 RULE_SUDDENDEATH = 8, RULE_RANDOM = 16, RULE_PLUS = 32,
+					 RULE_COMBO = 64, RULE_ELEMENTAL = 128 };
 
 typedef struct card_t {
 	uint8_t rank; char* name; uint8_t type;
@@ -140,7 +144,6 @@ struct {
 	char fn[10];  //Name of most recently-opened card pack
 } stats;
 
-enum directionValues { DIR_NONE = 0,DIR_DOWN,DIR_LEFT,DIR_RIGHT,DIR_UP };
 	
 	
 
@@ -162,6 +165,8 @@ void putcarddata(uint8_t cardslot);                  //tmpcard/tmpimg to slotnum
 void redrawboard();  //draws game board and cards in position.
 void drawcard(metacard_t *card,bool selected);
 uint8_t selectfromhand(uint8_t direction); //uses direection, selcard, curplayer
+metacard_t *getcardongrid(uint8_t gridpos);
+void cardfight(uint8_t pidx,uint8_t eidx);
 
 
 /* Put all your globals here */
@@ -171,6 +176,7 @@ uint8_t gamemode;
 uint8_t tmpimg[CARD_WIDTH*CARD_HEIGHT+2];
 uint8_t selcard;    //0-9
 uint8_t curplayer;  //0=player1, 1=player2
+uint8_t ruleFlags;
 
 card_t tmpcard;
 uint8_t *elemdat[9];
@@ -194,6 +200,7 @@ void main(void) {
 	uint8_t *sp,*packptr,*dataptr,i,j,y,copt,mopt,cpage,mpage;
 	uint8_t cardposbackup;
 	metacard_t card;
+	metacard_t *pcard,*ecard;
 	int x;
 	kb_key_t k,k7;
 	
@@ -220,6 +227,7 @@ void main(void) {
 	
 	if (maxpack) {
 		while (1) {
+			i = randInt(0,255);  //keep randomizing
 			kb_Scan();
 			k = kb_Data[1];
 			k7= kb_Data[7];
@@ -304,18 +312,30 @@ void main(void) {
 					strncpy(stats.fn,varname,9);
 					stats.fn[9] = 0x00;  //ensure null terminator is added
 				}
-				//A game mode should have been selected, but let's go full
-				//random in our testing.
-				for (i=0;i<10;i++) {
-					getcarddata(packptr,randInt(0,dataptr[-2]));
-					putcarddata(i);
-					cardbuf[i]->gridpos = i+10;
-					cardbuf[i]->isplayer1 = (i<5)?1:0;
-					cardbuf[i]->x = posarr[(i+10)*2];
-					cardbuf[i]->y = posarr[(i+10)*2+1];
-					cardbuf[i]->playstate = 0;  //0 or 1 depending on rules?
-					
+				/* DEBUGGING/TESTING */
+				ruleFlags = RULE_OPEN | RULE_RANDOM;
+				/* END DEBUGGING/TESTING CODE */
+				
+				if (ruleFlags & RULE_RANDOM) {
+					for (i=0;i<10;i++) {
+						getcarddata(packptr,randInt(0,dataptr[-2]));
+						putcarddata(i);
+						cardbuf[i]->gridpos = i+10;
+						cardbuf[i]->isplayer1 = (i<5)?1:0;
+						cardbuf[i]->x = posarr[(i+10)*2];
+						cardbuf[i]->y = posarr[(i+10)*2+1];
+						cardbuf[i]->playstate = 0;
+					}
+				} else {
+					// We... uh. Don't really have a way of playing
+					// non-random games?
+					gamemode = GM_TITLE;
 				}
+				if (ruleFlags & RULE_OPEN) {
+					for (i=0;i<10;i++) cardbuf[i]->playstate = 1;
+				}
+				//You'll want to prepare the board for possible play of
+				//elemental rule set. Need to create an array for this.
 				curplayer = 0;
 				selcard = 0;
 				selcard = selectfromhand(DIR_NONE); //Ensures 1st card P1 or P2
@@ -348,6 +368,7 @@ void main(void) {
 				if ((k7&kb_Left)&&((i-1)%3)) i -= 1;
 				if ((k7&kb_Right)&&(~(i-1)%3)) i += 1;
 				cardbuf[selcard]->gridpos = i;
+				redrawboard();
 				if (k&kb_2nd) {
 					for (j=0;j<10;j++) {
 						if (j==selcard) continue;
@@ -357,19 +378,53 @@ void main(void) {
 						}
 					}
 					if (j<11) {
-						cardbuf[selcard]->playstate = 2;
+						pcard = cardbuf[selcard];
+						pcard->playstate = 2;
+						// :: You want to do elemental rule card
+						// :: stat modificationsat this point.
+						
+						//Fight without special rules
+						if (i>3) cardfight(i,i-3);
+						if (i<7) cardfight(i,i+3);
+						if ((i-1)%3) cardfight(i,i-1);
+						if (~(i-1)%3) cardfight(i,i+1);
+						
+						
 						//
-						// You'll do battle/fight logic here and
-						// decide if a winner has been found.
+						// You'll do battle/fight logic here.
 						//
+						//Check amount of cards you vs other owned (including
+						//unplayed card) and decide winner.
+						for(i=j=k=0;i<10;i++) {
+							if (cardbuf[i]->gridpos < 10) {
+								if (cardbuf[i]->isplayer1) j++;
+								else k++;
+							}
+						}
+						if (j+k == 9) {
+							for (i=j=k=0;i<10;i++) {
+								if (cardbuf[i]->isplayer1) j++;
+								else k++;
+							}
+							
+							if (j>k) {
+								gfx_PrintStringXY("Player 1 has won!",5,230);
+							} else if (j<k) {
+								gfx_PrintStringXY("Player 2 has won!",5,230);
+							} else {
+								gfx_PrintStringXY("The game ended in a draw!",5,230);
+							}
+							gamemode = GM_TITLE;
+							gfx_SwapDraw();
+							waitanykey();
+							continue;
+						}
 						curplayer = !curplayer;
 						selcard = 0;
 						selcard = selectfromhand(DIR_NONE);
 						gamemode = GM_SELECTINGCARDS;
 					}
 				}
-				
-				redrawboard();
 			}
 			else { break; }
 			gfx_SwapDraw();
@@ -565,7 +620,7 @@ void drawcard(metacard_t *card, bool selected) {
 			gfx_TransparentSprite_NoClip(numtiles[cdata->left],x+2,y+2+8);
 			
 			if (cdata->element) {
-				gfx_TransparentSprite_NoClip((gfx_sprite_t*)elemdat[cdata->element],x+44,y+44);
+				gfx_TransparentSprite_NoClip((gfx_sprite_t*)elemdat[cdata->element],x+44,y+2);
 			}
 		}
 		else {
@@ -608,3 +663,42 @@ uint8_t selectfromhand(uint8_t direction) {
 	return found;
 }
 
+metacard_t *getcardongrid(uint8_t gridpos) {
+	uint8_t i;
+	metacard_t *card;
+	
+	for(i=0;i<10;i++) {
+		card = cardbuf[i];
+		if (card->gridpos == gridpos) return card;
+	}
+	return NULL;
+}
+
+void cardfight(uint8_t pidx,uint8_t eidx) {
+	uint8_t i;
+	int8_t prank,erank;
+	metacard_t *pcard,*ecard;
+	
+	pcard = getcardongrid(pidx);
+	if ((ecard=getcardongrid(eidx)) == NULL) return;
+	if (pcard->isplayer1 == ecard->isplayer1) return;
+	i = eidx - pidx; //up: 253, left: 255, right: 1, down: 3
+	if (i==253) { //attack up. player top, enemy bottom.
+		prank = pcard->c.up;
+		erank = ecard->c.down;
+	} else if (i==255) { //attack left. player left, enemy right.
+		prank = pcard->c.left;
+		erank = ecard->c.right;
+	} else if (i==1) { //attack right. player right, enemy left.
+		prank = pcard->c.right;
+		erank = ecard->c.left;
+	} else if (i==3) { //attack down. player down, enemy up
+		prank = pcard->c.down;
+		erank = ecard->c.up;
+	} else prank = erank = 0;
+	
+	if (prank>erank) ecard->isplayer1 = pcard->isplayer1;
+	
+	
+	
+}

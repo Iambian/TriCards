@@ -29,8 +29,8 @@ from PIL import Image,ImageTk
 import Tkinter as tk
 import sys,os,subprocess,json,struct,tempfile,math
 
-IMG_WIDTH = 54
-IMG_HEIGHT = 54
+IMG_WIDTH = 52
+IMG_HEIGHT = 52
 
 np  = os.path.normpath
 cwd = os.getcwd()
