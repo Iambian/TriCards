@@ -167,6 +167,7 @@ void drawcard(metacard_t *card,bool selected);
 uint8_t selectfromhand(uint8_t direction); //uses direection, selcard, curplayer
 metacard_t *getcardongrid(uint8_t gridpos);
 void cardfight(uint8_t pidx,uint8_t eidx);
+void initGame(uint8_t *packptr); //uses ruleFlags, outputs in globals.
 
 
 /* Put all your globals here */
@@ -177,13 +178,16 @@ uint8_t tmpimg[CARD_WIDTH*CARD_HEIGHT+2];
 uint8_t selcard;    //0-9
 uint8_t curplayer;  //0=player1, 1=player2
 uint8_t ruleFlags;
+uint8_t issuddendeath; //0=normal round, 1=sudden death round, 2=winner decided
 
 card_t tmpcard;
 uint8_t *elemdat[9];
 metacard_t *cardbuf[10];
 metacard_t tmpmeta;
-gfx_sprite_t *numtiles[11];
+gfx_sprite_t *numtiles[12];
 gfx_sprite_t *cardback;
+uint8_t elementgrid[9];
+
 
 /* Put all constants here */
 char *card_pack_header = "TriCrPak";
@@ -199,6 +203,7 @@ void main(void) {
 	char *varname,*cardtypestr;
 	uint8_t *sp,*packptr,*dataptr,i,j,y,copt,mopt,cpage,mpage;
 	uint8_t cardposbackup;
+	int8_t s;
 	metacard_t card;
 	metacard_t *pcard,*ecard;
 	int x;
@@ -213,8 +218,8 @@ void main(void) {
 	cardposbackup = cpage = mpage = copt = mopt = gamemode = curpack = maxpack = 0;
 	sp = packptr = dataptr = NULL;
 	for (i=0;i<10;i++) cardbuf[i] = malloc(sizeof tmpmeta); //card data buffer
-	dataptr = malloc((8*8+2)*11);  //sizeof 11 8x8 sprite objects
-	for (i=0;i<11;i++,dataptr+=(8*8+2)) {
+	dataptr = malloc((8*8+2)*12);  //sizeof 12 8x8 sprite objects
+	for (i=0;i<12;i++,dataptr+=(8*8+2)) {
 		dzx7_Turbo(numtiles_tiles_compressed[i],numtiles[i] =(void*) dataptr);
 	}
 	imgpack = malloc(((CARD_WIDTH*CARD_HEIGHT)+2)*10);      //card image buffer
@@ -313,35 +318,13 @@ void main(void) {
 					stats.fn[9] = 0x00;  //ensure null terminator is added
 				}
 				/* DEBUGGING/TESTING */
-				ruleFlags = RULE_OPEN | RULE_RANDOM;
+				ruleFlags = RULE_OPEN | RULE_RANDOM | RULE_ELEMENTAL | RULE_SUDDENDEATH;
 				/* END DEBUGGING/TESTING CODE */
 				
-				if (ruleFlags & RULE_RANDOM) {
-					for (i=0;i<10;i++) {
-						getcarddata(packptr,randInt(0,dataptr[-2]));
-						putcarddata(i);
-						cardbuf[i]->gridpos = i+10;
-						cardbuf[i]->isplayer1 = (i<5)?1:0;
-						cardbuf[i]->x = posarr[(i+10)*2];
-						cardbuf[i]->y = posarr[(i+10)*2+1];
-						cardbuf[i]->playstate = 0;
-					}
-				} else {
-					// We... uh. Don't really have a way of playing
-					// non-random games?
-					gamemode = GM_TITLE;
-				}
-				if (ruleFlags & RULE_OPEN) {
-					for (i=0;i<10;i++) cardbuf[i]->playstate = 1;
-				}
-				//You'll want to prepare the board for possible play of
-				//elemental rule set. Need to create an array for this.
-				curplayer = 0;
-				selcard = 0;
-				selcard = selectfromhand(DIR_NONE); //Ensures 1st card P1 or P2
+				initGame(packptr);
+				issuddendeath = 0;
 				gamemode = GM_SELECTINGCARDS;
 				continue;				
-				
 			}
 			else if (gamemode == GM_SELECTINGCARDS) {
 				i = 255;
@@ -380,8 +363,15 @@ void main(void) {
 					if (j<11) {
 						pcard = cardbuf[selcard];
 						pcard->playstate = 2;
-						// :: You want to do elemental rule card
-						// :: stat modificationsat this point.
+						// Implementing elemental rule
+						if (j=elementgrid[i-1]) {
+							if (pcard->c.element == j) s = 1;
+							else s = -1;
+							pcard->c.up = pcard->c.up + s;
+							pcard->c.right = pcard->c.right + s;
+							pcard->c.down = pcard->c.down + s;
+							pcard->c.left = pcard->c.left + s;
+						}
 						
 						//Fight without special rules
 						if (i>3) cardfight(i,i-3);
@@ -401,20 +391,26 @@ void main(void) {
 								else k++;
 							}
 						}
-						if (j+k == 9) {
+						if (j+k == 9 || issuddendeath == 2) {
 							for (i=j=k=0;i<10;i++) {
 								if (cardbuf[i]->isplayer1) j++;
 								else k++;
 							}
-							
+							redrawboard();
 							if (j>k) {
 								gfx_PrintStringXY("Player 1 has won!",5,230);
 							} else if (j<k) {
 								gfx_PrintStringXY("Player 2 has won!",5,230);
 							} else {
 								gfx_PrintStringXY("The game ended in a draw!",5,230);
+								if (ruleFlags & RULE_SUDDENDEATH) {
+									gfx_PrintString(" Sudden Death!");
+									issuddendeath = 1;
+									initGame(packptr);
+								}
 							}
-							gamemode = GM_TITLE;
+							if (issuddendeath != 1) gamemode = GM_TITLE;
+							else gamemode = GM_SELECTINGCARDS;
 							gfx_SwapDraw();
 							waitanykey();
 							continue;
@@ -576,6 +572,15 @@ void redrawboard() {
 	int x,y;
 	gfx_FillScreen(GAMEBOARD_BG);
 	
+	//Redraw elements
+	for (i=0;i<9;i++) {
+		if (t=elementgrid[i]) {
+			gfx_TransparentSprite_NoClip((gfx_sprite_t*)elemdat[t],
+				posarr[(i+1)*2]+(GRIDV/2-4),
+				posarr[(i+1)*2+1]+(GRIDV/2-4));
+		}
+	}
+	
 	gfx_SetColor(0x00);  //set later to card border color
 	for (i=2;i<20;i+=2) {
 		gfx_Rectangle_NoClip(posarr[i],posarr[i+1],CARD_WIDTH+4,CARD_HEIGHT+4);
@@ -614,10 +619,10 @@ void drawcard(metacard_t *card, bool selected) {
 			//if card is showing
 			gfx_TransparentSprite_NoClip(cdata->img,x+2,y+2);
 			
-			gfx_TransparentSprite_NoClip(numtiles[cdata->up],x+2+8,y+2+0);
-			gfx_TransparentSprite_NoClip(numtiles[cdata->right],x+2+16,y+2+8);
-			gfx_TransparentSprite_NoClip(numtiles[cdata->down],x+2+8,y+2+16);
-			gfx_TransparentSprite_NoClip(numtiles[cdata->left],x+2,y+2+8);
+			gfx_TransparentSprite_NoClip(numtiles[cdata->up],x+(2+8-3),y+(2+0));
+			gfx_TransparentSprite_NoClip(numtiles[cdata->right],x+(2+16-3-3),y+(2+8));
+			gfx_TransparentSprite_NoClip(numtiles[cdata->down],x+(2+8-3),y+(2+16));
+			gfx_TransparentSprite_NoClip(numtiles[cdata->left],x+2,y+(2+8));
 			
 			if (cdata->element) {
 				gfx_TransparentSprite_NoClip((gfx_sprite_t*)elemdat[cdata->element],x+44,y+2);
@@ -697,8 +702,55 @@ void cardfight(uint8_t pidx,uint8_t eidx) {
 		erank = ecard->c.up;
 	} else prank = erank = 0;
 	
-	if (prank>erank) ecard->isplayer1 = pcard->isplayer1;
-	
-	
-	
+	if (prank>erank) {
+		ecard->isplayer1 = pcard->isplayer1;
+		if (issuddendeath==1) issuddendeath++;
+	}
 }
+
+void initGame(uint8_t *packptr) {
+	uint8_t *dataptr,i;
+	dataptr = getdataadr(packptr);
+	
+	if (ruleFlags & RULE_RANDOM) {
+		for (i=0;i<10;i++) {
+			getcarddata(packptr,randInt(0,dataptr[-2]));
+			putcarddata(i);
+			cardbuf[i]->gridpos = i+10;
+			cardbuf[i]->isplayer1 = (i<5)?1:0;
+			cardbuf[i]->x = posarr[(i+10)*2];
+			cardbuf[i]->y = posarr[(i+10)*2+1];
+			cardbuf[i]->playstate = 0;
+		}
+	} else {
+		// We... uh. Don't really have a way of playing
+		// non-random games?
+		gamemode = GM_TITLE;
+	}
+	if (ruleFlags & RULE_OPEN) {
+		for (i=0;i<10;i++) cardbuf[i]->playstate = 1;
+	}
+	
+	memset(&elementgrid,0,9);
+	if (ruleFlags & RULE_ELEMENTAL) {
+		for (i=0;i<9;i++) {
+			if (!randInt(0,4)) {
+				elementgrid[i] = randInt(0,7)+1;
+			}
+		}
+	}
+	curplayer = 0;
+	selcard = 0;
+	selcard = selectfromhand(DIR_NONE); //Ensures 1st card P1 or P2
+	keywait();
+}
+
+
+
+
+
+
+
+
+
+

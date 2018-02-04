@@ -31,7 +31,21 @@ Building Pack Viewer / Game Player
 
 Controls
 --------
-TODO
+In the menu:
+
+| Keys     |  Function         |
+|---------:|:------------------|
+|[Mode]    | Go back/Quit      |
+|[2nd]     | Select option     |
+|Arrow keys| Change menu option|
+
+During the card battle:
+
+| Keys     |  Function         |
+|---------:|:------------------|
+|[Mode]    | Go back/forfeit   |
+|[2nd]     | Select/place card |
+|Arrow keys| Change selection  |
 
 License and Copyright
 ---------------------
@@ -44,5 +58,9 @@ that game. The stuff that isn't mine isn't mine. The stuff that is mine is mine.
 For the stuff that's mine, I'll stick in the BSD 2-clause license someplace and
 call it good.
 
+Custom Card Pack Requirements
+-----------------------------
+* Card ranks may only fall inside the inclusive range of 1 to 10 (A)
+* Input image dimensions must be 52 by 52
 
 
