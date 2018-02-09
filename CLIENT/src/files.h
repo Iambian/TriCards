@@ -14,6 +14,8 @@ extern uint8_t getnumpacks();
 extern uint8_t* getpackadr(char *varname);
 extern uint8_t* getdataadr(uint8_t *packadr);
 extern void getcarddata(uint8_t *packptr, uint8_t cardnum, card_t *cardadr, gfx_sprite_t *imgadr);
+
+extern char* selectpack();
 //extern void getcardadr
 
 

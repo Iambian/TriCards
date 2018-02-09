@@ -29,6 +29,7 @@
 #include "files.h"
 #include "common.h"
 #include "game.h"
+#include "viewer.h"
 
 #include "gfx/element_gfx.h"
 #include "gfx/num_gfx.h"
@@ -101,7 +102,8 @@ void main(void) {
 						//card pack selection if none was found
 						break;
 					case 1:
-						//something?
+						//Card pack browser
+						viewpack(selectpack());
 						break;
 					case 2:
 						gamemode = GM_OPTIONS;

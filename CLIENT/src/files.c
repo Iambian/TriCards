@@ -82,6 +82,7 @@ void getcarddata(uint8_t *packptr, uint8_t cardnum, card_t *cardadr, gfx_sprite_
 	cardadr->down    = dataptr[6];
 	cardadr->left    = dataptr[7];
 	cardadr->element = dataptr[8];
+	if (imgadr == NULL) return;
 	((uint16_t*)imgadr)[0] = (CARD_HEIGHT<<8)+CARD_WIDTH;
 	if (filefmt == 0) {
 		//2b img offset
@@ -127,6 +128,7 @@ void showpackdetails(char *varname,uint8_t curpack,uint8_t maxpack) {
 			gfx_FillRectangle_NoClip(x-1,119,CARD_WIDTH+2,CARD_HEIGHT+2);
 		}
 	}
+	gfx_SwapDraw();
 }
 
 char* selectpack() {
