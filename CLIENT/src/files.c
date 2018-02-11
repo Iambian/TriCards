@@ -58,6 +58,7 @@ uint8_t* getpackadr(char *varname) {
 
 uint8_t* getdataadr(uint8_t *packptr) {
 	uint8_t i;
+	if (packptr==NULL) return NULL;
 	for (i=FILE_LONGDESC_OFFSET;*(packptr+i);i++);
 	return packptr+(i+1+FILE_NUMCARDS_OFFSET_AFTER_LONGDESC);
 }

@@ -50,7 +50,8 @@ gfx_sprite_t *elemgfx[NUM_ELEMENTS];
 stats_t stats;
 
 void main(void) {
-	uint8_t *ptr,curpack,numpacks,i,curopt,maxopt,gamemode;
+	uint8_t curpack,numpacks,i,curopt,maxopt,gamemode,ruleset,result;
+	void *ptr;
 	kb_key_t kc,kd;
 	//Check if we have any card packs. If not, quit.
 	if (!(numpacks = getnumpacks())) {
@@ -98,8 +99,22 @@ void main(void) {
 			if (kc&kb_2nd) {
 				switch(curopt) {
 					case 0:
-						//Start game. play with current options or force
-						//card pack selection if none was found
+						if (getpackadr(&stats.fn) == NULL) {
+							if ((ptr = selectpack()) == NULL) break;
+							strncpy(&stats.fn,ptr,8);
+							stats.fn[8] = 0;  //ensure null-termination
+							//=========================================
+							// CONSTRUCT THE RULESET SOMEHOW. EITHER BY
+							// ASKING THE PLAYER FOR THEM OR SETTING
+							// THEM UP AHEAD OF TIME.
+							ruleset = RULE_RANDOM;
+							//=========================================
+							while ((result = startGame(&stats.fn,ruleset)) != RESULT_RETRY);
+							if (result == RESULT_WIN) stats.wins++;
+							if (result == RESULT_LOSE) stats.losses++;
+							if (result == RESULT_DRAW) stats.draws++;
+							if (result == RESULT_QUIT) stats.quits++;
+						}
 						break;
 					case 1:
 						//Card pack browser
