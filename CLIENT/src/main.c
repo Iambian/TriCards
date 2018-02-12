@@ -51,6 +51,7 @@ stats_t stats;
 
 void main(void) {
 	uint8_t curpack,numpacks,i,curopt,maxopt,gamemode,ruleset,result;
+	uint8_t *byteptr;
 	void *ptr;
 	kb_key_t kc,kd;
 	//Check if we have any card packs. If not, quit.
@@ -72,9 +73,9 @@ void main(void) {
 		imgpack[i] = malloc((CARD_WIDTH*CARD_HEIGHT)+2);
 	}
 	//Init number tile graphics
-	ptr = malloc(66*numtiles_tiles_num);
-	for (i=0;i<numtiles_tiles_num;i++,ptr+=66) {
-		dzx7_Turbo(numtiles_tiles_compressed[i],numtiles[i]=(gfx_sprite_t*) ptr);
+	byteptr = malloc(66*numtiles_tiles_num);
+	for (i=0;i<numtiles_tiles_num;i++,byteptr+=66) {
+		dzx7_Turbo(numtiles_tiles_compressed[i],numtiles[i]=(gfx_sprite_t*) byteptr);
 	}
 	//Init card back graphics
 	dzx7_Turbo(cardback_compressed,cardback=malloc((CARD_WIDTH*CARD_HEIGHT)+2));
@@ -103,13 +104,14 @@ void main(void) {
 							if ((ptr = selectpack()) == NULL) break;
 							strncpy(&stats.fn,ptr,8);
 							stats.fn[8] = 0;  //ensure null-termination
+							dbg_sprintf(dbgout,"INFILE %s",stats.fn);
 							//=========================================
 							// CONSTRUCT THE RULESET SOMEHOW. EITHER BY
 							// ASKING THE PLAYER FOR THEM OR SETTING
 							// THEM UP AHEAD OF TIME.
 							ruleset = RULE_RANDOM;
 							//=========================================
-							while ((result = startGame(&stats.fn,ruleset)) != RESULT_RETRY);
+							while ((result = startGame(&stats.fn,ruleset)) == RESULT_RETRY);
 							if (result == RESULT_WIN) stats.wins++;
 							if (result == RESULT_LOSE) stats.losses++;
 							if (result == RESULT_DRAW) stats.draws++;
