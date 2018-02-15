@@ -20,8 +20,8 @@ extern gfx_sprite_t *imgpack[];
 extern gfx_sprite_t *numtiles[numtiles_tiles_num];
 extern gfx_sprite_t *cardback;
 extern gfx_sprite_t *elemgfx[NUM_ELEMENTS];
-
-
+extern uint8_t issuddendeath;
+extern bool externalgfxfound;
 
 
 

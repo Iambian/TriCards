@@ -34,6 +34,7 @@
 #include "gfx/element_gfx.h"
 #include "gfx/num_gfx.h"
 #include "gfx/misc_gfx.h"
+#include "gfx/TrCrDat1.h"
 
 uint8_t *elemcdat[] = {	blanksym_compressed,poison_compressed,fire_compressed,
 						wind_compressed,earth_compressed,water_compressed,
@@ -48,6 +49,8 @@ gfx_sprite_t *numtiles[numtiles_tiles_num];
 gfx_sprite_t *cardback;
 gfx_sprite_t *elemgfx[NUM_ELEMENTS];
 stats_t stats;
+uint8_t issuddendeath;
+bool externalgfxfound;
 
 void main(void) {
 	uint8_t curpack,numpacks,i,curopt,maxopt,gamemode,ruleset,result;
@@ -85,6 +88,9 @@ void main(void) {
 	}
 	//Init variables
 	maxopt = curopt = gamemode = 0;
+	ptr = NULL;
+	//Init external graphics pack
+	externalgfxfound = TrCrDat1_init();
 	
 	//Menus, card browser, game.
 	do {
@@ -102,21 +108,22 @@ void main(void) {
 					case 0:
 						if (getpackadr(&stats.fn) == NULL) {
 							if ((ptr = selectpack()) == NULL) break;
-							strncpy(&stats.fn,ptr,8);
-							stats.fn[8] = 0;  //ensure null-termination
-							dbg_sprintf(dbgout,"INFILE %s",stats.fn);
-							//=========================================
-							// CONSTRUCT THE RULESET SOMEHOW. EITHER BY
-							// ASKING THE PLAYER FOR THEM OR SETTING
-							// THEM UP AHEAD OF TIME.
-							ruleset = RULE_RANDOM;
-							//=========================================
-							while ((result = startGame(&stats.fn,ruleset)) == RESULT_RETRY);
-							if (result == RESULT_WIN) stats.wins++;
-							if (result == RESULT_LOSE) stats.losses++;
-							if (result == RESULT_DRAW) stats.draws++;
-							if (result == RESULT_QUIT) stats.quits++;
 						}
+						strncpy(&stats.fn,ptr,8);
+						stats.fn[8] = 0;  //ensure null-termination
+						dbg_sprintf(dbgout,"INFILE %s",stats.fn);
+						issuddendeath = 0;
+						//=========================================
+						// CONSTRUCT THE RULESET SOMEHOW. EITHER BY
+						// ASKING THE PLAYER FOR THEM OR SETTING
+						// THEM UP AHEAD OF TIME.
+						ruleset = RULE_RANDOM | RULE_ELEMENTAL;
+						//=========================================
+						while ((result = startGame(&stats.fn,ruleset)) == RESULT_RETRY);
+						if (result == RESULT_WIN) stats.wins++;
+						if (result == RESULT_LOSE) stats.losses++;
+						if (result == RESULT_DRAW) stats.draws++;
+						if (result == RESULT_QUIT) stats.quits++;
 						break;
 					case 1:
 						//Card pack browser

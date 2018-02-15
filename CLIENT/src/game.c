@@ -18,8 +18,10 @@
 #include "common.h"
 #include "game.h"
 
+#include "gfx/TrCrDat1.h"
+
 /* Define globals/constants here */
-uint8_t selcard,curplayer,issuddendeath;
+uint8_t selcard,curplayer,resultstate,resultcount,gamestate;
 
 int posx[] = {
 	0,             //0
@@ -55,14 +57,15 @@ void gamewaitany();
 
 //Uses cardbuf from main.h
 uint8_t startGame(char *packname,uint8_t rules) {
-	uint8_t *packptr,*dataptr,i,numcards,gamestate,cardposbackup;
+	uint8_t *packptr,*dataptr,i,j,k,numcards;
+	int8_t s;
 	metacard_t *curcard;
 	void *ptr;
 	kb_key_t kc,kd;
 	
 	if ((dataptr = getdataadr(packptr = getpackadr(packname))) == NULL) return RESULT_QUIT;
 	numcards = dataptr[-2];
-	
+		
 	if (rules & RULE_RANDOM) {
 		for(i=0;i<10;i++) {
 			curcard = cardbuf[i];
@@ -83,8 +86,8 @@ uint8_t startGame(char *packname,uint8_t rules) {
 		}
 	}
 	
-	curplayer = 0;
-	selcard = 0;
+	curplayer = selcard = 0;
+
 	selcard = gethandcardidx(DIR_NONE); //Ensures 1st card P1 or P2
 	//keywait();
 	gamestate = GM_SELECTINGCARDS;
@@ -97,21 +100,100 @@ uint8_t startGame(char *packname,uint8_t rules) {
 		kc = kb_Data[1];
 		kd = kb_Data[7];
 		curcard = cardbuf[selcard];
-		if (gamestate == GM_SELECTINGCARDS) {
-			if (kc&kb_2nd) {
-				cardposbackup = curcard->gridpos;
-				curcard->gridpos = 5;
-				gamestate = GM_SELECTINGPLACE;
+		while (1) {
+			if (gamestate == GM_SELECTINGCARDS) {
+					if (kc&kb_2nd) {
+						curcard->gridpos = 5;
+						gamestate = GM_SELECTINGPLACE;
+						break;
+					}
+					i = 255;
+					if (kd&kb_Up) i = gethandcardidx(DIR_UP);
+					if (kd&kb_Down) i = gethandcardidx(DIR_DOWN);
+					if (i<10) selcard = i;
+					break;
+			} else if (gamestate == GM_SELECTINGPLACE) {
+				if (kc&kb_Mode) {
+					for (i=0;i<10;i++) {
+						if (cardbuf[i]->playstate<2) cardbuf[i]->gridpos = i+10;
+					}
+					gamestate = GM_SELECTINGCARDS;
+					break;
+				} else {
+					i = curcard->gridpos;
+					if ((kd&kb_Up)&&(i>3)) i -= 3;
+					if ((kd&kb_Down)&&(i<7)) i += 3;
+					if ((kd&kb_Left)&&((i-1)%3)) i -= 1;
+					if ((kd&kb_Right)&&(~(i-1)%3)) i += 1;
+					curcard->gridpos = i;
+					if (kc&kb_2nd) {
+						//Check if there's already a card where you're putting
+						for (j=0;j<10;j++) {
+							if (j==selcard) continue;
+							if (curcard->gridpos == cardbuf[j]->gridpos) j=254;
+						}
+						if (j<11) { //Magic number.
+							//Card is now being played.
+							curcard->playstate = 2;
+							//Implementing RULE_ELEMENTAL
+							if (j = elementgrid[i-1]) {
+								if (curcard->c.element == j) s = 1;
+								else s = -1;
+								curcard->c.up    += s;
+								curcard->c.right += s;
+								curcard->c.down  += s;
+								curcard->c.left  += s;
+							}
+							//Fighting without special rules
+							if (i>3)      cardfight(i,i-3);
+							if (i<7)      cardfight(i,i+3);
+							if ((i-1)%3)  cardfight(i,i-1);
+							if (~(i-1)%3) cardfight(i,i+1);
+							//
+							// You might want to add SAME(WALL)/PLUS rules here.
+							//
+							//Check the owners of all cards that have been played
+							for (i=j=k=0;i<10;i++) {
+								if (cardbuf[i]->gridpos < 10) {
+									if (cardbuf[i]->isplayer1) j++;
+									else k++;
+								}
+							}
+							//If all 9 slots are filled or is sudden death,
+							//check the owners of all cards, in play or not.
+							if (j+k == 9 || issuddendeath == 2) {
+								for (i=j=k=0;i<10;i++) {
+									if (cardbuf[i]->isplayer1) j++;
+									else k++;
+								}
+								resultcount = 0;
+								if (j<k) resultstate = RESULT_WIN;
+								else if (j>k) resultstate = RESULT_LOSE;
+								else {
+									resultstate = RESULT_DRAW;
+									if (issuddendeath == 1) {
+										issuddendeath++;
+										resultstate = RESULT_RETRY;
+									}
+								}
+								gamestate = GM_GAMEDECIDED;
+								continue;
+							}
+							curplayer = !curplayer;
+							selcard = 0;
+							selcard = gethandcardidx(DIR_NONE);
+							gamestate = GM_SELECTINGCARDS;
+						}
+					}
+				}
+				break;
+			} else if (gamestate == GM_GAMEDECIDED) {
+				gamewaitany();
+				return resultstate;
 			}
-			i = 255;
-			if (kd&kb_Up) i = gethandcardidx(DIR_UP);
-			if (kd&kb_Down) i = gethandcardidx(DIR_DOWN);
-			if (i<10) selcard = i;
-		} else if (gamestate == GM_SELECTINGPLACE) {
-			
-			
 		}
 		if (kb_Data[2]&kb_Math && kb_Data[6]&kb_Clear) return RESULT_QUIT;
+		
 		redrawboard();
 		if (kc|kd) gamewait();
 		
@@ -271,18 +353,30 @@ void drawcard(metacard_t *card,bool selected) {
 void redrawboard(void) {
 	uint8_t i,j,temp,y;
 	int x;
+	void *s;
 	//Draw background
-	gfx_FillScreen(GAMEBOARD_BG);
+	if (externalgfxfound) dzx7_Turbo(cardmat_compressed,gfx_vbuffer);
+	else gfx_FillScreen(GAMEBOARD_BG);
 	gfx_SetColor(0);
 	//Redraw elemental affinity symbols and render card grid borders on-field
 	for (i=0,j=1;i<9;i++,j++) {
-		if (temp=elementgrid[i]) gfx_TransparentSprite_NoClip(elemgfx[i],posx[i+1]+GRIDV/2-4,posy[i+1]+GRIDV/2-4);
+		if (temp=elementgrid[i]) gfx_TransparentSprite_NoClip(elemgfx[temp],posx[i+1]+GRIDV/2-4,posy[i+1]+GRIDV/2-4);
 		gfx_Rectangle_NoClip(posx[j],posy[j],CARD_WIDTH+4,CARD_HEIGHT+4);
 	}
 	//Render all cards except the selected card
 	for (i=0;i<10;i++) if (i!=selcard) drawcard(cardbuf[i],0);
 	drawcard(cardbuf[selcard],1);
-	gfx_SwapDraw();
+	if (gamestate == GM_GAMEDECIDED) {
+		switch (resultstate) {
+			case RESULT_WIN: s = "Blue player has won!";break;
+			case RESULT_LOSE: s = "Red player has won!";break;
+			case RESULT_DRAW: s = "The match has ended in a draw!";break;
+			case RESULT_RETRY:s = "Draw! Sudden death!";break;
+			default: s = "An undefined outcome!";break;
+		}
+		gfx_PrintStringXY(s,5,230);
+	}
+	gfx_Blit(gfx_buffer);
 }
 
 
