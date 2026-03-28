@@ -7,7 +7,7 @@
  *--------------------------------------
 */
 
-#define VERSION_INFO "v0.1"
+#define VERSION_INFO "v0.2"
 
 #define GM_TITLE 0
 #define GM_BROWSEPACK 4

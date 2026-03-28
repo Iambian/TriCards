@@ -24,20 +24,22 @@ _image_data:
 .db compressed_image_file
 '''
 
-print "Loading libraries"
-from PIL import Image,ImageTk
-import Tkinter as tk
-import sys,os,subprocess,json,struct,tempfile,math
+print("Loading libraries")
+from PIL import Image
+import sys,os,subprocess,json,struct,math
 
 IMG_WIDTH = 52
 IMG_HEIGHT = 52
+TEXT_ENCODING = "latin-1"
 
 np  = os.path.normpath
-cwd = os.getcwd()
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+BUILDER_DIR = os.path.dirname(SCRIPT_DIR)
+ZX7_PATH = np(os.path.join(SCRIPT_DIR,"zx7.exe"))
     
-TEMP_DIR     = np(cwd+"/obj/")
-TEMP_PNG_DIR = np(cwd+"/obj/png")
-OUTPUT_DIR   = np(cwd+"/bin")
+TEMP_DIR     = np(os.path.join(BUILDER_DIR,"obj"))
+TEMP_PNG_DIR = np(os.path.join(BUILDER_DIR,"obj","png"))
+OUTPUT_DIR   = np(os.path.join(BUILDER_DIR,"bin"))
 STATUS_FILE  = np(TEMP_DIR+'/curstate')
 
 def GETIMGPATH(fname): return np(TEMP_PNG_DIR+"/"+fname)
@@ -46,6 +48,11 @@ def GETIMGNAMES():
     return sorted([f for f in os.listdir(TEMP_PNG_DIR) if os.path.isfile(os.path.join(TEMP_PNG_DIR,f))])
 def ensure_dir(d):
     if not os.path.isdir(d): os.makedirs(d)
+
+def text_to_bytes(value):
+    if isinstance(value, bytes):
+        return value
+    return str(value).encode(TEXT_ENCODING)
     
 ensure_dir(TEMP_DIR)
 ensure_dir(TEMP_PNG_DIR)
@@ -79,9 +86,9 @@ class HeaderData():
         return len(self.tobytes(0))
         
     def tobytes(self,numcards):
-        s  = "TriCrPak"
-        s += self.ident.ljust(9,'\x00')[:9]
-        s += self.descr + '\x00'
+        s  = b"TriCrPak"
+        s += text_to_bytes(self.ident).ljust(9,b'\x00')[:9]
+        s += text_to_bytes(self.descr) + b'\x00'
         s += struct.pack('<H',numcards)
         return s
 
@@ -104,11 +111,11 @@ class CardCollection():
         
     def addcard(self,carddata_from_json):
         global enum_elements
-        if len(carddata_from_json) is not 9:
+        if len(carddata_from_json) != 9:
             raise ValueError("Input object not valid: "+str(carddata_from_json))
-        i = carddata_from_json
-        if isinstance(i[7],basestring): i[7] = enum_elements.index(i[7].lower().strip())
-        if isinstance(i[2],basestring): i[2] = enum_type.index(i[2].lower().strip())
+        i = list(carddata_from_json)
+        if isinstance(i[7],str): i[7] = enum_elements.index(i[7].lower().strip())
+        if isinstance(i[2],str): i[2] = enum_type.index(i[2].lower().strip())
         self.cardarray.append(_carddata(i[0],i[1].strip(),i[2],i[3],i[4],i[5],i[6],i[7],i[8]))
         self.cardcount += 1
 
@@ -134,7 +141,7 @@ class CardCollection():
         return offset
         
     def tobytes(self,header,imgcoll):
-        s = ''
+        s = b''
         for i in self.cardarray:
             t  = struct.pack("B",i.rank)
             t += struct.pack("<H",header.getsize()+self.getdatasize()+self.getstringoffset(i.name))
@@ -146,9 +153,9 @@ class CardCollection():
             t += struct.pack("B",i.element)
             t += struct.pack("<H",header.getsize()+self.getdatasize()+self.getstringsize()+imgcoll.getimgoffset(i.imgname))
             s += t
-        t = ''
+        t = b''
         for i in self.cardarray:
-            t += i.name + '\x00'
+            t += text_to_bytes(i.name) + b'\x00'
         s += t
         return s
 
@@ -162,9 +169,9 @@ class _imagedata():
         p2 = []
         # convert string to (r,g,b) palette
         for i in range(0,3*QUANTIZE_TO_COLORS,3):
-            r = ord(p[i+0])&~0x7
-            g = ord(p[i+1])&~0x7
-            b = ord(p[i+2])&~0x7
+            r = p[i+0]&~0x7
+            g = p[i+1]&~0x7
+            b = p[i+2]&~0x7
             p2.append((r,g,b))
         # find color nearest to 255,255,255 and make sure it is white
         idx = 0
@@ -193,11 +200,11 @@ class _imagedata():
         rdata = timg.tobytes()
         r = np(TEMP_DIR+"/r")
         c = np(TEMP_DIR+"/c")
-        n = open("NUL","w")
         if os.path.exists(r): os.remove(r)
         if os.path.exists(c): os.remove(c)
         writeFile(r,rdata)
-        subprocess.call([np(cwd+"/tools/zx7.exe"),r,c],stdout=n)
+        with open("NUL","w") as n:
+            subprocess.call([ZX7_PATH,r,c],stdout=n)
         cdata = readFile(c)
         #
         self.name = os.path.split(imgfile)[1]
@@ -209,7 +216,7 @@ class _imagedata():
 class ImageCollection():
     def __init__(self,pal):
         self.imgarray = []     # takes _imagedata objects
-        pal += [(0,0,0)] *256
+        pal = list(pal) + [(0,0,0)] *256
         t = []
         for i in pal[:256]:
             for j in i:
@@ -230,9 +237,9 @@ class ImageCollection():
         return offset
         
     def tobytes(self):
-        s = ''
+        s = b''
         for i in self.imgarray:
-            s += str(bytearray(i.cdata))
+            s += bytes(i.cdata)
         return s
 
 
@@ -246,31 +253,31 @@ TI_VAR_FLAG_ARCHIVED = 0x80
 
 def export8xv(filepath,filename,filedata):
     # Ensure that filedata is a string
-    if isinstance(filedata,list): filedata = str(bytearray(filedata))
+    if isinstance(filedata,list): filedata = bytes(filedata)
     # Add size bytes to file data as per (PROT)PROG/APPVAR data structure
     dsl = len(filedata)&0xFF
     dsh = (len(filedata)>>8)&0xFF
-    filedata = str(bytearray([dsl,dsh]))+filedata
+    filedata = bytes([dsl,dsh])+filedata
     # Construct variable header
     vsl = len(filedata)&0xFF
     vsh = (len(filedata)>>8)&0xFF
-    vh  = str(bytearray([0x0D,0x00,vsl,vsh,TI_VAR_APPVAR_TYPE]))
-    vh += filename.ljust(8,'\x00')[:8]
-    vh += str(bytearray([0x00,TI_VAR_FLAG_ARCHIVED,vsl,vsh]))
+    vh  = bytes([0x0D,0x00,vsl,vsh,TI_VAR_APPVAR_TYPE])
+    vh += text_to_bytes(filename).ljust(8,b'\x00')[:8]
+    vh += bytes([0x00,TI_VAR_FLAG_ARCHIVED,vsl,vsh])
     # Pull together variable metadata for TI8X file header
     varentry = vh + filedata
     varsizel = len(varentry)&0xFF
     varsizeh = (len(varentry)>>8)&0xFF
-    varchksum = sum([ord(i) for i in varentry])
+    varchksum = sum(varentry)
     vchkl = varchksum&0xFF
     vchkh = (varchksum>>8)&0xFF
     # Construct TI8X file header
-    h  = "**TI83F*"
-    h += str(bytearray([0x1A,0x0A,0x00]))
-    h += "Rawr. Gravy. Steaks. Cherries!".ljust(42)[:42]  #Always makes comments exactly 42 chars wide.
-    h += str(bytearray([varsizel,varsizeh]))
+    h  = b"**TI83F*"
+    h += bytes([0x1A,0x0A,0x00])
+    h += text_to_bytes("Rawr. Gravy. Steaks. Cherries!").ljust(42,b' ')[:42]  #Always makes comments exactly 42 chars wide.
+    h += bytes([varsizel,varsizeh])
     h += varentry
-    h += str(bytearray([vchkl,vchkh]))
+    h += bytes([vchkl,vchkh])
     # Write data out to file
     writeFile(np(filepath+"/"+filename+".8xv"),h)
     return
@@ -297,22 +304,25 @@ def quantizetopalette(silf, palette, dither=False):
 # -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 def usage(errorcode=0):
           #012345678901234567890123456789012345678901234567890123456789012345678901234567
-    print ""
-    if errorcode: print "[DEBUG] ERRCODE:"+str(errorcode)
-    print "tkit.py is a TRICARDS card pack builder."
-    print "Usage: python tkit.py <input_folder_path> <PACKNAME>"
-    print ""
-    print "<input_folder_path> must contain image files (.PNG) and"
-    print "exactly one JSON-encoded file (.json) that contains all"
-    print "the stats of all the cards in the card pack."
-    print ""
+    print("")
+    if errorcode: print("[DEBUG] ERRCODE:"+str(errorcode))
+    print("tkit.py is a TRICARDS card pack builder.")
+    print("Usage: python tkit.py <input_folder_path> <PACKNAME>")
+    print("")
+    print("<input_folder_path> must contain image files (.PNG) and")
+    print("exactly one JSON-encoded file (.json) that contains all")
+    print("the stats of all the cards in the card pack.")
+    print("")
     return 2
 
 def fatal(errorcode):
-    print "Fatal error [code: "+str(errorcode)+"] has occurred. The script will now exit."
+    print("Fatal error [code: "+str(errorcode)+"] has occurred. The script will now exit.")
     sys.exit(2)
 # =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 # It's time.
+
+if len(sys.argv) < 3:
+    sys.exit(usage())
 
 ifpath = sys.argv[1]
 ofname = sys.argv[2]
@@ -330,8 +340,8 @@ for i in range(256):
 #    print str(format(i,'02x'))+':'+str((r|7,g|3,b|7))
 # rrrrrggggggbbbbb
 #Collect data    
-imlist = [i for i in os.listdir(ifpath) if i.endswith(".png")]
-imdata = [i for i in os.listdir(ifpath) if i.endswith(".json")]
+imlist = [i for i in os.listdir(ifpath) if i.lower().endswith(".png")]
+imdata = [i for i in os.listdir(ifpath) if i.lower().endswith(".json")]
 if len(imdata)!=1: fatal("JSON_NEQ_1")
 carddata = None
 with open(np(ifpath+"/"+imdata[0]),'r') as f:
@@ -341,17 +351,17 @@ carddata = carddata[2:]
 ccoll = CardCollection()
 
 icoll = ImageCollection(xlcpal)
-print "Adding card data"
+print("Adding card data")
 for i in carddata: ccoll.addcard(i)
-print "Adding card images"
+print("Adding card images")
 for i in imlist:   icoll.addimg(np(ifpath+'/'+i))
-print "Size of image collection: "+str(len(icoll.tobytes()))
+print("Size of image collection: "+str(len(icoll.tobytes())))
     
 data = header.tobytes(ccoll.cardcount) + ccoll.tobytes(header,icoll) + icoll.tobytes()
 #with open("temp",'wb') as f: f.write(data)
 export8xv(OUTPUT_DIR,ofname,data)
-print "File "+str(ofname)+" built at "+str(OUTPUT_DIR)
-print "Hdr "+str(header.getsize())+" bytes, cdat "+str(ccoll.getdatasize())+" bytes, ndat "+str(ccoll.getstringsize())+" bytes, cidat "+str(len(icoll.tobytes()))+" bytes"
+print("File "+str(ofname)+" built at "+str(OUTPUT_DIR))
+print("Hdr "+str(header.getsize())+" bytes, cdat "+str(ccoll.getdatasize())+" bytes, ndat "+str(ccoll.getstringsize())+" bytes, cidat "+str(len(icoll.tobytes()))+" bytes")
 
 
 
