@@ -1,0 +1,48 @@
+converts:
+  - name: element_gfx
+    palette: xlibc
+    transparent-index: 255
+    compress: zx7
+    images:
+      - blanksym.png
+      - poison.png
+      - fire.png
+      - wind.png
+      - earth.png
+      - water.png
+      - ice.png
+      - thunder.png
+      - holy.png
+
+  - name: num_gfx
+    palette: xlibc
+    transparent-index: 255
+    compress: zx7
+    tilesets:
+      tile-width: 8
+      tile-height: 8
+      images:
+        - numtiles.png
+
+  - name: misc_gfx
+    palette: xlibc
+    transparent-index: 255
+    compress: zx7
+    images:
+      - cardback.png
+
+outputs:
+  - type: c
+    include-file: element_gfx.h
+    converts:
+      - element_gfx
+
+  - type: c
+    include-file: num_gfx.h
+    converts:
+      - num_gfx
+
+  - type: c
+    include-file: misc_gfx.h
+    converts:
+      - misc_gfx

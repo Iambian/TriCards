@@ -59,7 +59,7 @@
 #include <debug.h>
 #include <keypadc.h>
 #include <graphx.h>
-#include <decompress.h>
+#include <compression.h>
 #include <fileioc.h>
 
 #include "gfx/element_gfx.h"
@@ -199,13 +199,13 @@ char *cardtype[] = {"Monster","Boss","GF","Player"};
 uint8_t *elemcdat[] = {	blanksym_compressed,poison_compressed,fire_compressed,
 						wind_compressed,earth_compressed,water_compressed,
 						ice_compressed,thunder_compressed,holy_compressed};
-void main(void) {
+int main(void) {
 	char *varname,*cardtypestr;
-	uint8_t *sp,*packptr,*dataptr,i,j,y,copt,mopt,cpage,mpage;
+	void *vat_ptr;
+	uint8_t *packptr,*dataptr,i,j,y,copt,mopt,cpage,mpage;
 	uint8_t cardposbackup;
 	int8_t s;
-	metacard_t card;
-	metacard_t *pcard,*ecard;
+	metacard_t *pcard;
 	int x;
 	kb_key_t k,k7;
 	
@@ -213,21 +213,21 @@ void main(void) {
 	gfx_Begin();
 	gfx_SetDrawBuffer();
 	gfx_SetTransparentColor(TRANSPARENT_COLOR);
-	ti_CloseAll();
 	/* Initialize variables */
 	cardposbackup = cpage = mpage = copt = mopt = gamemode = curpack = maxpack = 0;
-	sp = packptr = dataptr = NULL;
+	vat_ptr = NULL;
+	packptr = dataptr = NULL;
 	for (i=0;i<10;i++) cardbuf[i] = malloc(sizeof tmpmeta); //card data buffer
 	dataptr = malloc((8*8+2)*12);  //sizeof 12 8x8 sprite objects
 	for (i=0;i<12;i++,dataptr+=(8*8+2)) {
-		dzx7_Turbo(numtiles_tiles_compressed[i],numtiles[i] =(void*) dataptr);
+		zx7_Decompress(numtiles[i] =(void*) dataptr,numtiles_tiles_compressed[i]);
 	}
 	imgpack = malloc(((CARD_WIDTH*CARD_HEIGHT)+2)*10);      //card image buffer
-	dzx7_Turbo(cardback_compressed,cardback = malloc(CARD_WIDTH*CARD_HEIGHT+2));
+	zx7_Decompress(cardback = malloc(CARD_WIDTH*CARD_HEIGHT+2),cardback_compressed);
 	
-	while ( ti_Detect(&sp,card_pack_header) ) { maxpack++; }
+	while (ti_Detect(&vat_ptr,card_pack_header)) { maxpack++; }
 	dataptr = malloc(9*(8*8+2));
-	for(i=0;i<9;i++,dataptr+=66) dzx7_Turbo(elemcdat[i],elemdat[i]=dataptr);
+	for(i=0;i<9;i++,dataptr+=66) zx7_Decompress(elemdat[i]=dataptr,elemcdat[i]);
 	
 	
 	if (maxpack) {
@@ -364,7 +364,7 @@ void main(void) {
 						pcard = cardbuf[selcard];
 						pcard->playstate = 2;
 						// Implementing elemental rule
-						if (j=elementgrid[i-1]) {
+						if ((j = elementgrid[i-1])) {
 							if (pcard->c.element == j) s = 1;
 							else s = -1;
 							pcard->c.up = pcard->c.up + s;
@@ -435,10 +435,16 @@ void main(void) {
 		waitanykey();
 	}
 	gfx_End();
+	return 0;
 }
 
 void keywait() { while (kb_AnyKey()); }
-void waitanykey() {	keywait(); 	while (!kb_AnyKey()); keywait(); }
+void waitanykey() {
+	keywait();
+	while (!kb_AnyKey()) {
+	}
+	keywait();
+}
 void ctext(char* s,uint8_t y) {	gfx_PrintStringXY(s,(LCD_WIDTH-gfx_GetStringWidth(s))/2,y); }
 void textscale2() { gfx_SetTextScale(2,2); }
 void textscale1() { gfx_SetTextScale(1,1); }
@@ -449,11 +455,13 @@ void drawbg() { gfx_FillScreen(FILE_EXPLORER_BGCOLOR); }
 //***
 
 char *selectpack() {
-	uint8_t *sp,*packptr,*cardptr,i;
+	void *vat_ptr;
+	uint8_t *packptr,*cardptr,i;
 	int x;
 	char *vn;
 	kb_key_t k,k7;
 	
+	vat_ptr = NULL;
 	vn = NULL;
 	while (1) {
 		kb_Scan();
@@ -462,7 +470,7 @@ char *selectpack() {
 		drawbg();
 		
 		vn = NULL;
-		for (i=0,sp=NULL;i<(curpack+1);i++,vn=ti_Detect(&sp,card_pack_header));
+		for (i=0,vat_ptr=NULL;i<(curpack+1);i++,vn=ti_Detect(&vat_ptr,card_pack_header));
 		if (!vn) return NULL;
 		packptr = getpackadr(vn);
 		cardptr = getdataadr(packptr);
@@ -507,7 +515,7 @@ char *selectpack() {
 uint8_t *getpackadr(char *vn) {
 	uint8_t *packptr;
 	ti_var_t f;
-	if (f = ti_Open(vn,"r")) {
+	if ((f = ti_Open(vn,"r"))) {
 		packptr = ti_GetDataPtr(f);
 		ti_Close(f);
 		return packptr;
@@ -522,7 +530,7 @@ uint8_t *getdataadr(uint8_t *pptr) {
 
 //on return, check output card rank. Failed to locate card if rank==0
 void getcarddata(uint8_t *pptr, uint8_t cardnum) {
-	uint8_t *cptr,fmt,i;
+	uint8_t *cptr,fmt;
 	
 	tmpcard.rank = 0;
 	cptr = getdataadr(pptr);
@@ -542,7 +550,7 @@ void getcarddata(uint8_t *pptr, uint8_t cardnum) {
 		tmpcard.element=cptr[8];
 		tmpcard.img  = (gfx_sprite_t*)tmpimg;
 		//dbg_sprintf(dbgout,"img %i adr %x\n",cardnum,pptr+*((uint16_t*)(cptr+9)));
-		dzx7_Turbo(pptr+*((uint16_t*)(cptr+9)),tmpimg+2);
+		zx7_Decompress(tmpimg+2,pptr+*((uint16_t*)(cptr+9)));
 		tmpimg[0] = CARD_WIDTH;
 		tmpimg[1] = CARD_HEIGHT;
 	}
@@ -553,7 +561,6 @@ void getcarddata(uint8_t *pptr, uint8_t cardnum) {
 
  //tmpcard/tmpimg to slotnum
 void putcarddata(uint8_t cardslot) {
-	uint8_t i;
 	uint8_t *imgpckptr;
 	metacard_t *carddata;
 	
@@ -563,18 +570,23 @@ void putcarddata(uint8_t cardslot) {
 	//load card data to card pack
 	tmpcard.img = (void*) imgpckptr;
 	carddata = cardbuf[cardslot];
-	memset(carddata,0,sizeof carddata);
+	/*	The below was commented out. The original version was bugged but was
+	  	being masked by the memcpy after it. I think the original intent was
+		to paper over card data version differences but we only really
+		support one format.
+	*/
+	//memset(carddata,0,sizeof *carddata);
 	memcpy(&carddata->c,&tmpcard,sizeof tmpcard);
 }
 
 void redrawboard() {
 	uint8_t i,t;
-	int x,y;
 	gfx_FillScreen(GAMEBOARD_BG);
 	
 	//Redraw elements
 	for (i=0;i<9;i++) {
-		if (t=elementgrid[i]) {
+		t = elementgrid[i];
+		if (t) {
 			gfx_TransparentSprite_NoClip((gfx_sprite_t*)elemdat[t],
 				posarr[(i+1)*2]+(GRIDV/2-4),
 				posarr[(i+1)*2+1]+(GRIDV/2-4));
@@ -645,7 +657,7 @@ void drawcard(metacard_t *card, bool selected) {
 
 //returns 0-9 for selectable card slot, or -1 if card not findable.
 uint8_t selectfromhand(uint8_t direction) {
-	uint8_t i,t,found;
+	uint8_t i,found;
 	metacard_t *curcard;
 	found = 255;
 	
