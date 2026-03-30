@@ -16,6 +16,9 @@ DEFAULT_SOURCE_DIR = BUILDER_DIR / "src" / "ff8packorig"
 DEFAULT_OUTPUT_DIR = BUILDER_DIR / "obj" / "tkit2"
 DEFAULT_DATA_FILE = DEFAULT_SOURCE_DIR / "data.json"
 TARGET_SIZE = (52, 52)
+QUANTIZE_TO_COLORS = 6
+QUANTIZE_USE_DITHER = False
+ALPHA_OPAQUE_THRESHOLD = 128
 
 # Edit these crop boxes to tune how much of each frame type is removed.
 # Format: (left, top, right, bottom), matching PIL.Image.crop semantics.
@@ -147,17 +150,65 @@ def resize_preview(image: Image.Image, size: tuple[int, int]) -> Image.Image:
 	return image.resize(size, Image.Resampling.LANCZOS)
 
 
+def get_dither_mode() -> int:
+	if QUANTIZE_USE_DITHER:
+		return Image.Dither.FLOYDSTEINBERG
+	return Image.Dither.NONE
+
+
+def flatten_alpha(image: Image.Image) -> Image.Image:
+	result = image.convert("RGBA")
+	pixels = result.load()
+	for y in range(result.height):
+		for x in range(result.width):
+			red, green, blue, alpha = pixels[x, y]
+			if alpha < ALPHA_OPAQUE_THRESHOLD:
+				pixels[x, y] = (0, 0, 0, 0)
+			else:
+				pixels[x, y] = (red, green, blue, 255)
+	return result
+
+
+def quantize_preview(image: Image.Image) -> Image.Image:
+	image = flatten_alpha(image)
+	alpha = image.getchannel("A")
+	bbox = alpha.getbbox()
+	if bbox is None:
+		return image
+
+	opaque_crop = image.crop(bbox).convert("RGB")
+	color_count = max(1, min(QUANTIZE_TO_COLORS, 255))
+	dither = get_dither_mode()
+	palette_source = opaque_crop.quantize(
+		colors=color_count,
+		kmeans=3,
+        method=Image.Quantize.FASTOCTREE,
+		dither=dither,
+	)
+	palette_image = Image.new("P", (1, 1))
+	palette_image.putpalette(palette_source.getpalette())
+
+	quantized_rgb = image.convert("RGB").quantize(
+		palette=palette_image,
+		dither=dither,
+	).convert("RGBA")
+	quantized_rgb.putalpha(alpha)
+	return flatten_alpha(quantized_rgb)
+
+
 def save_outputs(card_path: Path, card_type: str, masked: Image.Image, output_dir: Path) -> Path:
 	crop_box = CROP_BOXES[card_type]
 	cropped = masked.crop(crop_box)
 	resized = resize_preview(cropped, TARGET_SIZE)
+	quantized = quantize_preview(resized)
 
 	output_dir.mkdir(parents=True, exist_ok=True)
 	stem = card_path.stem
 	masked.save(output_dir / f"{stem}-masked.png")
 	cropped.save(output_dir / f"{stem}-cropped.png")
+	resized.save(output_dir / f"{stem}-resized-52.png")
 	preview_path = output_dir / f"{stem}-preview-52.png"
-	resized.save(preview_path)
+	quantized.save(preview_path)
 	return preview_path
 
 
