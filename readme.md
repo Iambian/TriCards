@@ -22,12 +22,38 @@ Building Pack Viewer / Game Player
 * Download and install the ZDS-based CE C Software Development Kit (v7.5)
   https://github.com/CE-Programming/toolchain/releases/tag/v7.5 and install it.
   idk how to modify to make it work on v8.x, will add instructions later if needed.
-* Not sure if necessary but you may need to use convpng on the CLIENT\src\gfx
-  folder to build all the images. To do that, navigate to that folder, 
-  open the command prompt, type `convpng`, then push enter.
+* The client static graphics are now generated from `CLIENT\src\gfx\convimg.yaml`.
+  From `CLIENT\`, run `make gfx` before `make` whenever the graphics config or
+  source PNGs change.
 * Open the command prompt and navigate to where the makefile is. Type `make`,
   push enter, and watch it go.
 * If it all worked, TRICARDS.8xp will be in the CLIENT\bin folder.
+
+Current Graphics / Runtime Status
+---------------------------------
+The graphics and palette work is currently in transition.
+
+What has been changed so far:
+* `CLIENT\src\main.c` has been split so the client is now organized around
+  `main.c`, `card_loading.c`, `gameplay.c`, and the shared declarations in
+  `tricards.h`.
+* Internal client assets are no longer using the old implicit xlibc-only setup.
+  `make gfx` now generates a shared internal palette from `convimg.yaml`, and
+  the client loads that palette at runtime.
+* Card images now use per-slot palette slices starting at palette index `100`.
+* The pack loader now derives card-record width from the pack table offsets at
+  runtime, which fixed browser mismatches caused by assuming record stride from
+  palette-count metadata alone.
+* The card browser now keeps list-name reads separate from preview-image loads,
+  preventing palette instability caused by reusing the same slot for both text
+  lookup and the selected-card preview.
+
+What is still not finished:
+* The palette migration is not considered complete yet.
+* More cleanup and validation are still needed around remaining assumptions in
+  the client, asset colors, and overall runtime behavior.
+* The pack-format transition is also still in progress, so builder/runtime
+  alignment should not be assumed to be fully settled yet.
 
 Controls
 --------

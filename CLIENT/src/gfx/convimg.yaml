@@ -1,7 +1,40 @@
+palettes:
+  - name: internal_palette
+    max-entries: 64
+    fixed-entries:
+      - color: {index: 0, hex: "#FF00FF"}
+      - color: {index: 1, hex: "#070707"}
+      - color: {index: 2, hex: "#8F775F"}
+      - color: {index: 3, hex: "#0F4757"}
+      - color: {index: 4, hex: "#1FA7EF"}
+      - color: {index: 5, hex: "#5FCFF7"}
+      - color: {index: 6, hex: "#8F9767"}
+      - color: {index: 7, hex: "#9FF7FF"}
+      - color: {index: 8, hex: "#BFF7FF"}
+      - color: {index: 9, hex: "#C7BF2F"}
+      - color: {index: 10, hex: "#DFFFFF"}
+      - color: {index: 11, hex: "#E7FF3F"}
+      - color: {index: 12, hex: "#F79FA7"}
+      - color: {index: 13, hex: "#FFFFFF"}
+    quality: 10
+    images:
+      - blanksym.png
+      - poison.png
+      - fire.png
+      - wind.png
+      - earth.png
+      - water.png
+      - ice.png
+      - thunder.png
+      - holy.png
+      - numtiles.png
+      - cardback.png
+
 converts:
   - name: element_gfx
-    palette: xlibc
-    transparent-index: 255
+    palette: internal_palette
+    palette-offset: 0
+    transparent-index: 0
     compress: zx7
     images:
       - blanksym.png
@@ -15,8 +48,9 @@ converts:
       - holy.png
 
   - name: num_gfx
-    palette: xlibc
-    transparent-index: 255
+    palette: internal_palette
+    palette-offset: 0
+    transparent-index: 0
     compress: zx7
     tilesets:
       tile-width: 8
@@ -25,13 +59,20 @@ converts:
         - numtiles.png
 
   - name: misc_gfx
-    palette: xlibc
-    transparent-index: 255
+    palette: internal_palette
+    palette-offset: 0
+    transparent-index: 0
     compress: zx7
     images:
       - cardback.png
 
 outputs:
+  - type: c
+    palettes:
+      - internal_palette
+    prepend-palette-sizes: true
+    const: true
+
   - type: c
     include-file: element_gfx.h
     converts:
