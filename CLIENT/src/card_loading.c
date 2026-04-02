@@ -133,6 +133,7 @@ void resetcardslot(uint8_t cardslot) {
     buffer = card_image_pool + (CARD_IMAGE_BUFFER_SIZE * cardslot);
     memset(cardbuf[cardslot], 0, sizeof *cardbuf[cardslot]);
     cardbuf[cardslot]->slot_index = cardslot;
+    cardbuf[cardslot]->palette_base_index = 0;
     cardbuf[cardslot]->source.decompressed_card_data = buffer;
     cardbuf[cardslot]->card.img = (gfx_sprite_t *)buffer;
     buffer[0] = CARD_WIDTH;
@@ -159,6 +160,7 @@ bool loadcardslot(uint8_t *packptr, uint16_t cardnum, uint8_t cardslot) {
     slot = cardbuf[cardslot];
     sprite_data = slot->source.decompressed_card_data;
     palette_data = (const uint16_t *)((const uint8_t *)metadata + sizeof *metadata);
+    slot->palette_base_index = (uint8_t)CARD_SLOT_PALETTE_INDEX(cardslot, palette_entries);
 
     slot->source.metadata = metadata;
     slot->source.card_name = (const char *)(packptr + metadata->name_offset);

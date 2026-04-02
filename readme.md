@@ -17,6 +17,25 @@ Building Asset Files
 Input folder must contain all image files and a JSON file formatted like the
 examples provided.
 
+Version 2 pack builder (`BUILDER\tools\tkit2.py`)
+-------------------------------------------------
+* `tkit2.py` builds the newer `Tri2Pak!` pack format used by the current client.
+* Default source input is `BUILDER\src\ff8packorig` and default previews go to
+  `BUILDER\obj\tkit2`.
+* Basic usage: `python BUILDER\tools\tkit2.py --compression zx0 --var-name CRP7FF8`
+* The script defaults to `zx7`, but the default FF8 source pack currently fits
+  only with `--compression zx0`.
+* `tkit2.py` now detects whether a removable frame is actually present. If a
+  card does not appear to match the expected frame, the script skips frame
+  masking and crop-box trimming and simply resizes the source art to `52x52`.
+  That lets custom packs use framed or frameless card art, including non-256x256
+  source images.
+* Single-image inspection mode is available by passing an image filename instead
+  of building a full pack. Use `--card-type` if the image is not listed in the
+  pack JSON.
+* See `BUILDER\readme.md` for the full `tkit2.py` workflow and configuration
+  details.
+
 Building Pack Viewer / Game Player
 ----------------------------------
 * Download and install the ZDS-based CE C Software Development Kit (v7.5)
@@ -31,7 +50,7 @@ Building Pack Viewer / Game Player
 
 Current Graphics / Runtime Status
 ---------------------------------
-The graphics and palette work is currently in transition.
+The custom palette migration for the client is now in place.
 
 What has been changed so far:
 * `CLIENT\src\main.c` has been split so the client is now organized around
@@ -47,13 +66,18 @@ What has been changed so far:
 * The card browser now keeps list-name reads separate from preview-image loads,
   preventing palette instability caused by reusing the same slot for both text
   lookup and the selected-card preview.
+* Each card slot now owns a writable base palette entry used as the card's
+  faux-transparent background color. The pack selector and browser set that
+  entry to the file-explorer background color, while gameplay sets it to the
+  existing player background colors (`PLAYER1_BG` / `PLAYER2_BG`).
+* During gameplay, captured cards now animate that writable base color in a
+  non-blocking sequence from the card's previous owner color toward white and
+  then back down to the new owner's background color. Multiple captured cards
+  can transition at the same time.
 
-What is still not finished:
-* The palette migration is not considered complete yet.
-* More cleanup and validation are still needed around remaining assumptions in
-  the client, asset colors, and overall runtime behavior.
-* The pack-format transition is also still in progress, so builder/runtime
-  alignment should not be assumed to be fully settled yet.
+The custom palette migration itself should now be treated as complete. The
+remaining active work is around broader pack-format/runtime evolution rather
+than the client still depending on the old shared palette model.
 
 Controls
 --------

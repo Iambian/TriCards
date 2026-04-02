@@ -44,6 +44,14 @@
 #define CARD_PALETTE_SLICE_SIZE(palette_entries) ((palette_entries) + 1)
 #define CARD_SLOT_PALETTE_INDEX(slot, palette_entries) \
     (CARD_PALETTE_BASE_INDEX + ((slot) * CARD_PALETTE_SLICE_SIZE(palette_entries)))
+#define SET_CARD_SLOT_BASE_COLOR(card_slot, color) \
+    do { \
+        gfx_palette[(card_slot)->palette_base_index] = gfx_palette[(color)]; \
+    } while (0)
+#define SET_CARD_SLOT_BASE_COLOR_VALUE(card_slot, color_value) \
+    do { \
+        gfx_palette[(card_slot)->palette_base_index] = (color_value); \
+    } while (0)
 
 #define CARD_IMAGE_TRANSPARENT_SENTINEL 0xFF
 #define LIST_LINE_HEIGHT 12
@@ -147,6 +155,11 @@ typedef struct tricard_card_slot_t {
     uint8_t gridpos;
     uint8_t isplayer1;
     uint8_t slot_index;
+    uint8_t palette_base_index;
+    uint8_t color_transition_active;
+    uint8_t color_transition_frame;
+    uint16_t color_transition_source;
+    uint16_t color_transition_target;
 } tricard_card_slot_t;
 
 extern int posarr[];

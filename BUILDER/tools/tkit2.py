@@ -106,6 +106,7 @@ ELEMENT_ENUM = ["none", "poison", "fire", "wind", "earth", "water", "ice", "thun
 
 FRAME_BRIGHTNESS_THRESHOLD = 24
 FRAME_MATCH_THRESHOLD = 36
+FRAME_DETECTION_THRESHOLD = 0.85
 
 COMPRESSION_METHODS = {
     "zx7": {"code": 0, "path": ZX7_PATH},
@@ -141,6 +142,7 @@ class BuiltCard:
     palette_1555: list[int]
     compressed_pixels: bytes
     preview_path: Path
+    frame_detected: bool
 
 
 class StringTable:
@@ -374,6 +376,47 @@ def mask_frame(card: Image.Image, frame: Image.Image) -> Image.Image:
     return result
 
 
+def get_frame_match_ratio(card: Image.Image, frame: Image.Image) -> float:
+    if card.size != frame.size:
+        return 0.0
+
+    card = card.convert("RGBA")
+    frame = frame.convert("RGBA")
+    card_pixels = card.load()
+    frame_pixels = frame.load()
+    frame_mask = get_frame_mask(frame)
+    tested = 0
+    matched = 0
+    index = 0
+
+    for y in range(card.height):
+        for x in range(card.width):
+            should_test = frame_mask[index]
+            index += 1
+            if not should_test:
+                continue
+            tested += 1
+            card_red, card_green, card_blue, card_alpha = card_pixels[x, y]
+            frame_red, frame_green, frame_blue, _frame_alpha = frame_pixels[x, y]
+            if card_alpha == 0:
+                continue
+            if color_distance(
+                (card_red, card_green, card_blue),
+                (frame_red, frame_green, frame_blue),
+            ) <= FRAME_MATCH_THRESHOLD:
+                matched += 1
+
+    if tested == 0:
+        return 0.0
+    return matched / tested
+
+
+def has_removable_frame(card: Image.Image, frame: Image.Image | None) -> bool:
+    if frame is None:
+        return False
+    return get_frame_match_ratio(card, frame) >= FRAME_DETECTION_THRESHOLD
+
+
 def resize_preview(image: Image.Image, size: tuple[int, int]) -> Image.Image:
     return image.resize(size, Image.Resampling.LANCZOS)
 
@@ -598,19 +641,26 @@ def process_card(
     compressor_path: Path | None,
     write_outputs: bool = True,
 ) -> BuiltCard:
+    frame = None
+
     if card.card_type not in FRAME_FILES:
         raise KeyError(f"Could not determine card type for {card.image_name}.")
 
     frame_path = source_dir / FRAME_FILES[card.card_type]
-    if not frame_path.is_file():
-        raise FileNotFoundError(f"Frame image not found: {frame_path}")
-    if card.card_type not in frame_cache:
+    if frame_path.is_file() and card.card_type not in frame_cache:
         frame_cache[card.card_type] = Image.open(frame_path).convert("RGBA")
+    if frame_path.is_file():
+        frame = frame_cache[card.card_type]
 
     card_path = source_dir / card.image_name
     raw_card = Image.open(card_path).convert("RGBA")
-    masked = mask_frame(raw_card, frame_cache[card.card_type])
-    cropped = masked.crop(CROP_BOXES[card.card_type])
+    frame_detected = has_removable_frame(raw_card, frame)
+    if frame_detected:
+        masked = mask_frame(raw_card, frame)
+        cropped = masked.crop(CROP_BOXES[card.card_type])
+    else:
+        masked = raw_card.copy()
+        cropped = raw_card.copy()
     resized = resize_preview(cropped, TARGET_SIZE)
     quantized, palette_1555, pixel_bytes = quantize_card_image(resized, palette_colors)
     preview_path = (
@@ -626,6 +676,7 @@ def process_card(
         palette_1555=palette_1555,
         compressed_pixels=compress_data(pixel_bytes, compression_method, compressor_path),
         preview_path=preview_path,
+        frame_detected=frame_detected,
     )
 
 
@@ -832,7 +883,8 @@ def inspect_single_card(
     )
     print(f"image: {source_dir / card_entry.image_name}")
     print(f"type: {card_entry.card_type}")
-    print(f"crop: {CROP_BOXES[card_entry.card_type]}")
+    print(f"frame detected: {built_card.frame_detected}")
+    print(f"crop: {CROP_BOXES[card_entry.card_type] if built_card.frame_detected else 'skipped'}")
     print(f"preview: {built_card.preview_path}")
     print(f"palette entries: {len(built_card.palette_1555)}")
     print(f"compression: {compression_method}")

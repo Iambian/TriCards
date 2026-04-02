@@ -229,6 +229,7 @@ int main(void) {
 
                 if (loadcardslot(packptr,((uint16_t)cpage * OPTIONS_PER_PAGE) + copt,CARD_BROWSER_PREVIEW_SLOT)) {
                     preview_slot = cardbuf[CARD_BROWSER_PREVIEW_SLOT];
+                    SET_CARD_SLOT_BASE_COLOR(preview_slot, FILE_EXPLORER_BGCOLOR);
                     gfx_SetColor(INTERNAL_BLACK_COLOR);
                     cardtypestr = (preview_slot->card.type < 4) ? cardtype[preview_slot->card.type] : "Unknown";
                     x = 200+(120-gfx_GetStringWidth(cardtypestr))/2;
@@ -453,6 +454,7 @@ char *selectpack(void) {
         ctext("Card pack preview",110);
         for(i=0,x=(LCD_WIDTH-(CARD_WIDTH+4)*5)/2;i<5;i++,x+=CARD_WIDTH+4) {
             if (loadcardslot(packptr,i,i) && cardbuf[i]->card.rank) {
+                SET_CARD_SLOT_BASE_COLOR(cardbuf[i], FILE_EXPLORER_BGCOLOR);
                 gfx_SetColor(INTERNAL_BLACK_COLOR);
                 gfx_Rectangle_NoClip(x-1,119,CARD_WIDTH+2,CARD_HEIGHT+2);
                 gfx_TransparentSprite_NoClip(cardbuf[i]->card.img,x,120);

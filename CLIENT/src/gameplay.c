@@ -2,9 +2,83 @@
 
 #include "tricards.h"
 
+#define CARD_CAPTURE_FADE_TO_WHITE_FRAMES 8
+#define CARD_CAPTURE_FADE_TO_TARGET_FRAMES 8
+#define CARD_CAPTURE_TOTAL_FRAMES \
+    (CARD_CAPTURE_FADE_TO_WHITE_FRAMES + CARD_CAPTURE_FADE_TO_TARGET_FRAMES)
+
+static uint16_t getplayerbgcolor(uint8_t isplayer1) {
+    return gfx_palette[isplayer1 ? PLAYER1_BG : PLAYER2_BG];
+}
+
+static uint8_t gettransitionamount(uint8_t frame, uint8_t max_frame) {
+    uint16_t scaled_amount;
+
+    if (max_frame == 0) {
+        return 255;
+    }
+    if (frame >= max_frame) {
+        return 255;
+    }
+    scaled_amount = (uint16_t)frame * 255 / max_frame;
+    return (uint8_t)scaled_amount;
+}
+
+static uint16_t getcardtransitioncolor(const tricard_card_slot_t *card) {
+    uint8_t phase_frame;
+
+    if (!card->color_transition_active) {
+        return getplayerbgcolor(card->isplayer1);
+    }
+
+    if (card->color_transition_frame <= CARD_CAPTURE_FADE_TO_WHITE_FRAMES) {
+        return gfx_Lighten(
+            card->color_transition_source,
+            (uint8_t)(255 - gettransitionamount(
+                card->color_transition_frame,
+                CARD_CAPTURE_FADE_TO_WHITE_FRAMES
+            ))
+        );
+    }
+
+    phase_frame = (uint8_t)(card->color_transition_frame - CARD_CAPTURE_FADE_TO_WHITE_FRAMES);
+    return gfx_Lighten(
+        card->color_transition_target,
+        gettransitionamount(phase_frame, CARD_CAPTURE_FADE_TO_TARGET_FRAMES)
+    );
+}
+
+static void startcardtransition(tricard_card_slot_t *card, uint16_t source_color, uint16_t target_color) {
+    card->color_transition_active = 1;
+    card->color_transition_frame = 0;
+    card->color_transition_source = source_color;
+    card->color_transition_target = target_color;
+}
+
+static void updatecardtransitions(void) {
+    uint8_t i;
+    tricard_card_slot_t *card;
+
+    for (i = 0; i < CARD_SLOT_COUNT; i++) {
+        card = cardbuf[i];
+        if (!card->color_transition_active) {
+            continue;
+        }
+        if (card->color_transition_frame < CARD_CAPTURE_TOTAL_FRAMES) {
+            card->color_transition_frame++;
+            continue;
+        }
+        card->color_transition_active = 0;
+        card->color_transition_frame = 0;
+        card->color_transition_source = 0;
+        card->color_transition_target = 0;
+    }
+}
+
 static void drawcard(tricard_card_slot_t *card, bool selected) {
     int x, y, cx, cy;
     uint8_t gpos;
+    uint16_t base_color;
     tricard_runtime_card_t *cdata;
 
     x = card->x;
@@ -25,6 +99,8 @@ static void drawcard(tricard_card_slot_t *card, bool selected) {
     card->y = y;
 
     cdata = &card->card;
+    base_color = getcardtransitioncolor(card);
+    SET_CARD_SLOT_BASE_COLOR_VALUE(card, base_color);
     if (selected) {
         gpos = card->gridpos;
         if (gpos > 9 && gpos < 15) {
@@ -34,7 +110,7 @@ static void drawcard(tricard_card_slot_t *card, bool selected) {
             x -= 5;
         }
     }
-    gfx_SetColor(card->isplayer1 ? PLAYER1_BG : PLAYER2_BG);
+    gfx_SetColor(card->palette_base_index);
     gfx_FillRectangle_NoClip(x + 1, y + 1, CARD_WIDTH + 2, CARD_HEIGHT + 2);
     if (card->playstate > 0 || selected) {
         gfx_TransparentSprite_NoClip(cdata->img, x + 2, y + 2);
@@ -134,7 +210,11 @@ void cardfight(uint8_t pidx, uint8_t eidx) {
     }
 
     if (prank > erank) {
+        uint16_t source_color;
+
+        source_color = getcardtransitioncolor(ecard);
         ecard->isplayer1 = pcard->isplayer1;
+        startcardtransition(ecard, source_color, getplayerbgcolor(ecard->isplayer1));
         if (issuddendeath == 1) {
             issuddendeath++;
         }
@@ -186,6 +266,7 @@ void initGame(uint8_t *packptr) {
 void redrawboard(void) {
     uint8_t i, t;
 
+    updatecardtransitions();
     gfx_FillScreen(GAMEBOARD_BG);
 
     for (i = 0; i < 9; i++) {
