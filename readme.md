@@ -74,6 +74,13 @@ What has been changed so far:
   non-blocking sequence from the card's previous owner color toward white and
   then back down to the new owner's background color. Multiple captured cards
   can transition at the same time.
+* The gameplay rule engine now supports FF8-style `Same`, `Same Wall`, `Plus`,
+  and `Combo` resolution when those rule bits are enabled.
+* Starting a match now opens a centered pre-match rule-selection screen before
+  gameplay begins. It defaults to `Open + Random + Elemental + Sudden Death`,
+  keeps `Random` locked on, and lets `[Mode]` back out to card pack selection.
+* Menu previews now use dedicated non-gameplay card slots, and the card image
+  pool is statically allocated instead of coming from the heap.
 
 The custom palette migration itself should now be treated as complete. The
 remaining active work is around broader pack-format/runtime evolution rather
@@ -88,6 +95,10 @@ In the menu:
 |[Mode]    | Go back/Quit      |
 |[2nd]     | Select option     |
 |Arrow keys| Change menu option|
+
+On the rules-selection screen, `[2nd]` toggles the highlighted rule or starts
+the match from the top `Start Game` row, and `[Mode]` returns to card pack
+selection.
 
 During the card battle:
 

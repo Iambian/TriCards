@@ -55,7 +55,8 @@ struct {
     char fn[10];
 } stats;
 
-uint8_t *card_image_pool;
+static uint8_t card_image_pool_storage[CARD_IMAGE_BUFFER_SIZE * CARD_SLOT_COUNT];
+uint8_t *card_image_pool = card_image_pool_storage;
 uint8_t curpack, maxpack;
 uint8_t gamemode;
 uint8_t selcard;
@@ -81,6 +82,131 @@ uint8_t *elemcdat[] = {
     wind_compressed,earth_compressed,water_compressed,
     ice_compressed,thunder_compressed,holy_compressed
 };
+
+static const char *rule_menu_text[] = {
+    "Start Game",
+    "Open",
+    "Random",
+    "Elemental",
+    "Sudden Death",
+    "Same",
+    "Same Wall",
+    "Plus",
+    "Combo"
+};
+
+static const uint8_t rule_menu_flags[] = {
+    0,
+    RULE_OPEN,
+    RULE_RANDOM,
+    RULE_ELEMENTAL,
+    RULE_SUDDENDEATH,
+    RULE_SAME,
+    RULE_SAMEWALL,
+    RULE_PLUS,
+    RULE_COMBO
+};
+
+static uint8_t getrulemenuoptioncount(void) {
+    return (uint8_t)(sizeof rule_menu_text / sizeof *rule_menu_text);
+}
+
+static bool isruleoptionenabled(uint8_t option_index) {
+    if (option_index == 0) {
+        return false;
+    }
+    return (ruleFlags & rule_menu_flags[option_index]) != 0;
+}
+
+static void normalizeruleflags(void) {
+    ruleFlags |= RULE_RANDOM;
+    if (!(ruleFlags & RULE_SAME)) {
+        ruleFlags &= (uint8_t)~RULE_SAMEWALL;
+    }
+}
+
+static void toggleruleoption(uint8_t option_index) {
+    uint8_t option_flag;
+
+    if (option_index == 0) {
+        return;
+    }
+
+    option_flag = rule_menu_flags[option_index];
+    if (option_flag == RULE_RANDOM) {
+        return;
+    }
+    if (option_flag == RULE_SAMEWALL && !(ruleFlags & RULE_SAME)) {
+        return;
+    }
+
+    ruleFlags ^= option_flag;
+    normalizeruleflags();
+}
+
+static const char *getruleoptionstate(uint8_t option_index) {
+    if (option_index == 0) {
+        return NULL;
+    }
+    return isruleoptionenabled(option_index) ? "ON" : "OFF";
+}
+
+static void drawruleselectmenu(uint8_t current_option) {
+    uint8_t i;
+    uint8_t option_count;
+    uint8_t box_x;
+    uint8_t box_y;
+    uint8_t box_w;
+    uint8_t row_y;
+    const char *state_text;
+
+    option_count = getrulemenuoptioncount();
+    box_w = 200;
+    box_x = (uint8_t)((LCD_WIDTH - box_w) / 2);
+    box_y = 56;
+
+    drawbg();
+    textscale2();
+    ctext("Match Rules",5);
+    textscale1();
+    gfx_PrintStringXY("Pack: ", box_x, 32);
+    gfx_PrintString(stats.fn);
+    gfx_PrintStringXY("Random stays enabled.", box_x, 202);
+    gfx_PrintStringXY("2nd: toggle/start", box_x, 216);
+    gfx_PrintStringXY("Mode: choose another pack", box_x, 228);
+
+    for (i = 0, row_y = box_y; i < option_count; i++, row_y += LIST_LINE_HEIGHT) {
+        gfx_SetColor(listcolors[i & 1]);
+        if (i == current_option) {
+            gfx_SetColor(LIST_BG_S);
+            gfx_SetTextFGColor(LIST_TX_S);
+        } else if (isruleoptionenabled(i)) {
+            gfx_SetTextFGColor(RULE_ENABLED_TEXT_COLOR);
+        } else {
+            gfx_SetTextFGColor(MENU_TEXT_COLOR);
+        }
+
+        gfx_FillRectangle_NoClip(box_x, row_y, box_w, LIST_LINE_HEIGHT);
+        if (i == 0) {
+            gfx_PrintStringXY(
+                (char *)rule_menu_text[i],
+                (LCD_WIDTH - gfx_GetStringWidth(rule_menu_text[i])) / 2,
+                row_y + 2
+            );
+        } else {
+            gfx_PrintStringXY((char *)rule_menu_text[i], box_x + 8, row_y + 2);
+            state_text = getruleoptionstate(i);
+            if (state_text != NULL) {
+                gfx_PrintStringXY(
+                    (char *)state_text,
+                    box_x + box_w - gfx_GetStringWidth(state_text) - 8,
+                    row_y + 2
+                );
+            }
+        }
+        gfx_SetTextFGColor(MENU_TEXT_COLOR);
+    }
+}
 
 static uint8_t getbrowserpagecount(uint16_t card_count) {
     return (uint8_t)((card_count + OPTIONS_PER_PAGE - 1) / OPTIONS_PER_PAGE);
@@ -110,8 +236,6 @@ int main(void) {
     uint16_t card_count;
     uint16_t card_index;
     uint8_t cardposbackup;
-    int8_t s;
-    tricard_card_slot_t *pcard;
     int x;
     kb_key_t k,k7;
 
@@ -130,7 +254,6 @@ int main(void) {
     for (i=0;i<12;i++,dataptr+=(8*8+2)) {
         zx7_Decompress(numtiles[i] =(void*) dataptr,numtiles_tiles_compressed[i]);
     }
-    card_image_pool = malloc(CARD_IMAGE_BUFFER_SIZE * CARD_SLOT_COUNT);
     for (i = 0; i < CARD_SLOT_COUNT; i++) {
         resetcardslot(i);
     }
@@ -279,12 +402,42 @@ int main(void) {
                     strncpy(stats.fn,varname,9);
                     stats.fn[9] = 0x00;
                 }
-                ruleFlags = RULE_OPEN | RULE_RANDOM | RULE_ELEMENTAL | RULE_SUDDENDEATH;
-
-                initGame(packptr);
-                issuddendeath = 0;
-                gamemode = GM_SELECTINGCARDS;
+                ruleFlags = DEFAULT_RULE_FLAGS;
+                normalizeruleflags();
+                copt = 0;
+                gamemode = GM_RULESELECT;
                 continue;
+            }
+            else if (gamemode == GM_RULESELECT) {
+                if (packptr == NULL) {
+                    gamemode = GM_GAMESELECT;
+                    continue;
+                }
+
+                drawruleselectmenu(copt);
+                if (k & kb_Mode) {
+                    closepack();
+                    packptr = NULL;
+                    stats.fn[0] = 0x00;
+                    gamemode = GM_GAMESELECT;
+                    continue;
+                }
+                if ((k7 & kb_Up) && copt) {
+                    copt--;
+                }
+                if ((k7 & kb_Down) && copt < (getrulemenuoptioncount() - 1)) {
+                    copt++;
+                }
+                if (k & kb_2nd) {
+                    if (copt == 0) {
+                        initGame(packptr);
+                        issuddendeath = 0;
+                        gamemode = GM_SELECTINGCARDS;
+                    } else {
+                        toggleruleoption(copt);
+                    }
+                    continue;
+                }
             }
             else if (gamemode == GM_SELECTINGCARDS) {
                 i = 255;
@@ -296,7 +449,7 @@ int main(void) {
                 if (k&kb_Mode) gamemode = GM_TITLE;
                 if (k7&kb_Up) i = selectfromhand(DIR_UP);
                 if (k7&kb_Down) i = selectfromhand(DIR_DOWN);
-                if (i < 10) selcard = i;
+                if (i < GAME_CARD_SLOT_COUNT) selcard = i;
                 redrawboard();
             }
             else if (gamemode == GM_SELECTINGPLACE) {
@@ -313,38 +466,25 @@ int main(void) {
                 cardbuf[selcard]->gridpos = i;
                 redrawboard();
                 if (k&kb_2nd) {
-                    for (j=0;j<10;j++) {
+                    for (j = 0; j < GAME_CARD_SLOT_COUNT; j++) {
                         if (j==selcard) continue;
                         if (cardbuf[selcard]->gridpos == cardbuf[j]->gridpos) {
                             j = 255;
                             break;
                         }
                     }
-                    if (j<11) {
-                        pcard = cardbuf[selcard];
-                        pcard->playstate = 2;
-                        if ((j = elementgrid[i-1])) {
-                            if (pcard->card.element == j) s = 1;
-                            else s = -1;
-                            pcard->card.up = pcard->card.up + s;
-                            pcard->card.right = pcard->card.right + s;
-                            pcard->card.down = pcard->card.down + s;
-                            pcard->card.left = pcard->card.left + s;
-                        }
+                    if (j < GAME_CARD_SLOT_COUNT + 1) {
+                        cardbuf[selcard]->playstate = 2;
+                        resolvecardplacement(i);
 
-                        if (i>3) cardfight(i,i-3);
-                        if (i<7) cardfight(i,i+3);
-                        if ((i-1)%3) cardfight(i,i-1);
-                        if (~(i-1)%3) cardfight(i,i+1);
-
-                        for(i=j=k=0;i<10;i++) {
+                        for(i=j=k=0;i<GAME_CARD_SLOT_COUNT;i++) {
                             if (cardbuf[i]->gridpos < 10) {
                                 if (cardbuf[i]->isplayer1) j++;
                                 else k++;
                             }
                         }
                         if (j+k == 9 || issuddendeath == 2) {
-                            for (i=j=k=0;i<10;i++) {
+                            for (i=j=k=0;i<GAME_CARD_SLOT_COUNT;i++) {
                                 if (cardbuf[i]->isplayer1) j++;
                                 else k++;
                             }
@@ -452,12 +592,15 @@ char *selectpack(void) {
         gfx_PrintStringXY("Number of cards: ",5,95);
         gfx_PrintUInt(card_count,3);
         ctext("Card pack preview",110);
-        for(i=0,x=(LCD_WIDTH-(CARD_WIDTH+4)*5)/2;i<5;i++,x+=CARD_WIDTH+4) {
-            if (loadcardslot(packptr,i,i) && cardbuf[i]->card.rank) {
-                SET_CARD_SLOT_BASE_COLOR(cardbuf[i], FILE_EXPLORER_BGCOLOR);
+        for(i=0,x=(LCD_WIDTH-(CARD_WIDTH+4)*PACK_SELECTOR_PREVIEW_COUNT)/2;i<PACK_SELECTOR_PREVIEW_COUNT;i++,x+=CARD_WIDTH+4) {
+            uint8_t preview_slot_index;
+
+            preview_slot_index = (uint8_t)(CARD_PACK_SELECTOR_SLOT_BASE + i);
+            if (loadcardslot(packptr,i,preview_slot_index) && cardbuf[preview_slot_index]->card.rank) {
+                SET_CARD_SLOT_BASE_COLOR(cardbuf[preview_slot_index], FILE_EXPLORER_BGCOLOR);
                 gfx_SetColor(INTERNAL_BLACK_COLOR);
                 gfx_Rectangle_NoClip(x-1,119,CARD_WIDTH+2,CARD_HEIGHT+2);
-                gfx_TransparentSprite_NoClip(cardbuf[i]->card.img,x,120);
+                gfx_TransparentSprite_NoClip(cardbuf[preview_slot_index]->card.img,x,120);
             } else {
                 gfx_SetColor(FILE_EXPLORER_BGCOLOR);
                 gfx_FillRectangle_NoClip(x-1,119,CARD_WIDTH+2,CARD_HEIGHT+2);

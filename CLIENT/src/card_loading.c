@@ -40,7 +40,6 @@ static uint8_t getpackpaletteentries(const tricard_pack_header_t *header) {
 }
 
 static bool transformcardimagedata(
-    const tricard_pack_header_t *header,
     const uint16_t *palette_data,
     uint8_t palette_entries,
     uint8_t cardslot,
@@ -57,7 +56,6 @@ static bool transformcardimagedata(
         return false;
     }
 
-    gfx_palette[palette_base] = header->transparent_color;
     if (palette_entries > 0) {
         memcpy(&gfx_palette[palette_base + 1], palette_data, palette_entries * sizeof(*palette_data));
     }
@@ -189,7 +187,6 @@ bool loadcardslot(uint8_t *packptr, uint16_t cardnum, uint8_t cardslot) {
     }
 
     return transformcardimagedata(
-        header,
         palette_data,
         palette_entries,
         cardslot,

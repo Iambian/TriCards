@@ -365,6 +365,8 @@ The client scans installed variables using `ti_Detect(&sp, card_pack_header)` wh
 - `card_loading.c` now contains the central pack parsing and load helpers used by both the browser and the game.
 - The browser list now reads card names directly from metadata instead of repeatedly reloading slot `0`, which avoids palette-slice churn on the already-drawn preview.
 - The selected browser preview uses its own runtime slot so it does not inherit transient palette updates from the pack selection preview.
+- Selector/browser preview rendering now uses dedicated non-gameplay card slots
+  instead of borrowing the first gameplay slots.
 - Preview cards in the selector and browser now retint their slot-local base
   palette entry to `FILE_EXPLORER_BGCOLOR`, so their faux-transparent pixels
   match the surrounding panel background.
@@ -382,9 +384,37 @@ The client scans installed variables using `ti_Detect(&sp, card_pack_header)` wh
 - `drawcard()` now uses the slot's current animated RGB1555 color for both the
   card background fill and the card's faux-transparent palette entry.
 
+### Gameplay rule resolution
+
+- The live startup path in `main.c` still defaults matches to
+  `RULE_OPEN | RULE_RANDOM | RULE_ELEMENTAL | RULE_SUDDENDEATH`.
+- `gameplay.c` now contains the rule-resolution helpers for the remaining
+  feasible FF8 board rules:
+  - `Same`
+  - `Same Wall`
+  - `Plus`
+  - `Combo`
+- The placed-card resolution path now runs through `resolvecardplacement()`
+  instead of keeping elemental adjustment and four direct `cardfight()` calls
+  inline in `main.c`.
+- Elemental placement modifiers are now clamped back into the legal `1..10`
+  range.
+- `Same` and `Plus` are evaluated from the newly placed card only.
+- `Same Wall` only extends `Same`, treating a board edge as value `10`.
+- `Combo` only propagates normal greater-than captures from cards flipped by
+  `Same` or `Plus`.
+- `main.c` now inserts a dedicated rules-selection screen between pack selection
+  and `initGame()`.
+- That screen uses a centered list styled after the Card Browser rows, with a
+  top `Start Game` row and one row per rule.
+- Enabled rules keep a distinct non-selected text color, `Random` stays locked
+  on, and pressing `Mode` backs out to card pack selection instead of silently
+  accepting the current flags.
+
 ### In-memory card images
 
 - Card images are decompressed on demand into the persistent `card_image_pool`.
+- That image pool is now statically allocated rather than coming from `malloc`.
 - Each runtime slot owns its sprite buffer and its hardware palette slice.
 - Each runtime slot also owns the first palette entry in that slice as a
   writable background/faux-transparent color.
@@ -452,7 +482,8 @@ memset(carddata,0,sizeof carddata);
 
 Examples:
 
-- `RULE_SAME`, `RULE_PLUS`, and `RULE_COMBO` are declared but not implemented.
+- `RULE_SAME`, `RULE_SAMEWALL`, `RULE_PLUS`, and `RULE_COMBO` now have gameplay
+  resolution logic and a dedicated pre-match UI for toggling them.
 - `fmt == 1` in `getcarddata()` is declared but not implemented.
 - `stats` exists but only partly participates in pack selection flow.
 - the root README explicitly says the proper writeup and licensing were never finished.

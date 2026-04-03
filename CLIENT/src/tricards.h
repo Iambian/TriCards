@@ -15,14 +15,18 @@
 #define GM_CARDLISTER 5
 #define GM_OPTIONS 6
 #define GM_GAMESELECT 7
-#define GM_SELECTINGCARDS 8
-#define GM_SELECTINGPLACE 9
+#define GM_RULESELECT 8
+#define GM_SELECTINGCARDS 9
+#define GM_SELECTINGPLACE 10
 #define GM_GAMEXIT 255
 
 #define CARD_WIDTH 52
 #define CARD_HEIGHT 52
-#define CARD_SLOT_COUNT 10
-#define CARD_BROWSER_PREVIEW_SLOT (CARD_SLOT_COUNT - 1)
+#define GAME_CARD_SLOT_COUNT 10
+#define PACK_SELECTOR_PREVIEW_COUNT 5
+#define CARD_PACK_SELECTOR_SLOT_BASE GAME_CARD_SLOT_COUNT
+#define CARD_BROWSER_PREVIEW_SLOT (CARD_PACK_SELECTOR_SLOT_BASE + PACK_SELECTOR_PREVIEW_COUNT)
+#define CARD_SLOT_COUNT (CARD_BROWSER_PREVIEW_SLOT + 1)
 #define CARD_IMAGE_BUFFER_SIZE (CARD_WIDTH * CARD_HEIGHT + 2)
 #define INTERNAL_PALETTE_BASE_INDEX 0
 #define INTERNAL_PALETTE_COLOR(index) (INTERNAL_PALETTE_BASE_INDEX + (index))
@@ -57,6 +61,7 @@
 #define LIST_LINE_HEIGHT 12
 
 #define MENU_TEXT_COLOR INTERNAL_BLACK_COLOR
+#define RULE_ENABLED_TEXT_COLOR GREETINGS_DIALOG_TEXT_COLOR
 #define OPTIONS_PER_PAGE 11
 
 #define GMBOX_X (LCD_WIDTH / 4)
@@ -87,6 +92,8 @@ enum playRuleFlags {
     RULE_COMBO = 64,
     RULE_ELEMENTAL = 128
 };
+
+#define DEFAULT_RULE_FLAGS (RULE_OPEN | RULE_RANDOM | RULE_ELEMENTAL | RULE_SUDDENDEATH)
 
 enum packCompressionMethod {
     PACK_COMPRESSION_ZX7 = 0,
@@ -210,6 +217,7 @@ void redrawboard(void);
 uint8_t selectfromhand(uint8_t direction);
 tricard_card_slot_t *getcardongrid(uint8_t gridpos);
 void cardfight(uint8_t pidx, uint8_t eidx);
+void resolvecardplacement(uint8_t gridpos);
 void initGame(uint8_t *packptr);
 
 #endif
