@@ -1,10 +1,7 @@
-"""TriCards card pack builder, version 2.
+"""TriCards card pack builder.
 
-This builder keeps the TI appvar wrapper used by the original toolchain, but
-emits a new versioned payload with a different magic string so the legacy
-client cannot open it accidentally.
-
-Payload layout, version 2:
+The active single-file format is `Tri2Pak!` version 2. It stores one logical
+pack in one appvar payload:
 
     Header (32 bytes, little-endian)
     Card record table (fixed-size records)
@@ -39,13 +36,25 @@ Each card record is:
     image_size            = uint16 compressed byte length
     palette[]             = palette_entry_count * uint16 RGB1555
 
-Image data stores one byte per pixel before compression. Palette entries use
-indices 0..palette_entry_count-1, and 255 means transparent. The shared
-transparent RGB1555 color is stored once in the file header and is not part of
-the per-card palettes. A future client is expected to decompress the stream,
-load the record palette into hardware palette slots, remap opaque bytes into the
-chosen hardware indices, and preserve 255 as the transparent sentinel or rewrite
-it to the client's active transparent index.
+When a pack does not fit in one appvar, the builder can emit a manifest plus
+shards:
+
+    Manifest payload (`Tri2Mft!`, version 3)
+        Common 32-byte header
+        Shard directory table
+        String table (currently description only)
+
+    Shard payload (`Tri2Shd!`, version 3)
+        Common 32-byte header
+        Card record table
+        String table
+        Image blob
+
+Shard payloads deliberately keep the same local metadata layout as `Tri2Pak!`.
+The key difference is that offsets remain local to each shard. The manifest
+reuses the common 32-byte header shape, but its `record_table_offset` points to
+the shard directory instead of card metadata. The number of shard directory
+entries is derived from `string_table_offset - record_table_offset`.
 """
 
 from __future__ import annotations
@@ -72,11 +81,18 @@ DEFAULT_DATA_FILE = DEFAULT_SOURCE_DIR / "data.json"
 ZX7_PATH = SCRIPT_DIR / "zx7.exe"
 ZX0_PATH = SCRIPT_DIR / "zx0.exe"
 
-MAGIC = b"Tri2Pak!"
-FORMAT_VERSION = 2
+SINGLE_FILE_MAGIC = b"Tri2Pak!"
+MANIFEST_MAGIC = b"Tri2Mft!"
+SHARD_MAGIC = b"Tri2Shd!"
+SINGLE_FILE_FORMAT_VERSION = 2
+MULTIFILE_FORMAT_VERSION = 3
 HEADER_FORMAT = "<8sBHBH9sBHHHH"
 CARD_RECORD_BASE_FORMAT = "<8B4H"
+SHARD_DIRECTORY_FORMAT = "<8sHHHH"
 TEXT_ENCODING = "latin-1"
+MAX_PAYLOAD_BYTES = 0xFFFF - 2
+NEAR_SINGLE_FILE_WARNING_BYTES = 1024
+SHARD_MARKER_CANDIDATES = "STUVWXYZQJKL"
 
 TARGET_SIZE = (52, 52)
 DEFAULT_PALETTE_COLORS = 7
@@ -143,6 +159,22 @@ class BuiltCard:
     compressed_pixels: bytes
     preview_path: Path
     frame_detected: bool
+
+
+@dataclass(frozen=True)
+class BuiltShard:
+    var_name: str
+    first_card_index: int
+    built_cards: list[BuiltCard]
+    payload: bytes
+
+
+@dataclass(frozen=True)
+class ShardDirectoryEntry:
+    var_name: str
+    first_card_index: int
+    card_count: int
+    payload_size: int
 
 
 class StringTable:
@@ -225,6 +257,12 @@ def parse_args() -> argparse.Namespace:
         help="Compression method for per-card image streams.",
     )
     parser.add_argument(
+        "--format",
+        choices=("auto", "single", "multi"),
+        default="auto",
+        help="Output format policy: single file only, forced manifest+shards, or auto fallback.",
+    )
+    parser.add_argument(
         "--compressor-path",
         type=Path,
         help="Optional path override for the selected compressor executable. If omitted, tkit2 searches common repo locations.",
@@ -243,9 +281,15 @@ def text_to_bytes(value: str) -> bytes:
     return str(value).encode(TEXT_ENCODING)
 
 
+def normalize_var_name(value: str) -> str:
+    normalized = "".join(ch for ch in str(value).upper() if ch.isalnum())
+    if not normalized:
+        raise ValueError("Variable name must contain at least one alphanumeric character.")
+    return normalized[:8]
+
+
 def get_default_var_name(pack_identifier: str) -> str:
-    cleaned = "".join(ch for ch in pack_identifier.upper() if ch.isalnum())
-    return (cleaned or "TRI2PACK")[:8]
+    return normalize_var_name(pack_identifier or "TRI2PACK")
 
 
 def normalize_enum(value: str) -> str:
@@ -711,7 +755,66 @@ def build_contact_sheet(pack: PackSource, built_cards: list[BuiltCard], output_d
     return output_path
 
 
-def serialize_pack(
+def estimate_local_pack_payload_size(pack: PackSource, built_cards: list[BuiltCard]) -> int:
+    if not built_cards:
+        raise ValueError("No cards available to size.")
+
+    palette_entry_count = len(built_cards[0].palette_1555)
+    if any(len(card.palette_1555) != palette_entry_count for card in built_cards):
+        raise ValueError("All cards must share the same palette entry count.")
+
+    header_size = struct.calcsize(HEADER_FORMAT)
+    record_size = struct.calcsize(CARD_RECORD_BASE_FORMAT) + (palette_entry_count * 2)
+    strings = StringTable()
+    strings.add(pack.description)
+    for card in built_cards:
+        strings.add(card.source.name)
+        strings.add(card.source.image_name)
+    string_blob = strings.to_bytes()
+    image_blob_size = sum(len(card.compressed_pixels) for card in built_cards)
+    return header_size + (len(built_cards) * record_size) + len(string_blob) + image_blob_size
+
+
+def serialize_common_header(
+    magic: bytes,
+    version: int,
+    card_count: int,
+    palette_entry_count: int,
+    transparent_color: int,
+    pack_identifier: str,
+    compression_method: str,
+    description_offset: int,
+    record_table_offset: int,
+    string_table_offset: int,
+    image_blob_offset: int,
+) -> bytes:
+    if any(offset > 0xFFFF for offset in (
+        description_offset,
+        record_table_offset,
+        string_table_offset,
+        image_blob_offset,
+    )):
+        raise ValueError("Pack payload exceeds uint16 header offset range.")
+
+    return struct.pack(
+        HEADER_FORMAT,
+        magic,
+        version,
+        card_count,
+        palette_entry_count,
+        transparent_color,
+        text_to_bytes(pack_identifier).ljust(9, b"\x00")[:9],
+        COMPRESSION_METHODS[compression_method]["code"],
+        description_offset,
+        record_table_offset,
+        string_table_offset,
+        image_blob_offset,
+    )
+
+
+def serialize_local_pack_payload(
+    magic: bytes,
+    version: int,
     pack: PackSource,
     built_cards: list[BuiltCard],
     transparent_color: int,
@@ -768,20 +871,19 @@ def serialize_pack(
         image_offset += len(card.compressed_pixels)
 
     payload_size = image_blob_offset + len(image_blob)
-    if payload_size > 0xFFFF:
+    if payload_size > MAX_PAYLOAD_BYTES:
         raise ValueError(
             f"Pack payload is too large for this format/wrapper: {payload_size} bytes."
         )
 
-    header = struct.pack(
-        HEADER_FORMAT,
-        MAGIC,
-        FORMAT_VERSION,
+    header = serialize_common_header(
+        magic,
+        version,
         len(built_cards),
         palette_entry_count,
         transparent_color,
-        text_to_bytes(pack.pack_identifier).ljust(9, b"\x00")[:9],
-        COMPRESSION_METHODS[compression_method]["code"],
+        pack.pack_identifier,
+        compression_method,
         string_table_offset + description_rel_offset,
         record_table_offset,
         string_table_offset,
@@ -791,11 +893,188 @@ def serialize_pack(
     return header + bytes(record_blob) + string_blob + bytes(image_blob)
 
 
+def serialize_pack(
+    pack: PackSource,
+    built_cards: list[BuiltCard],
+    transparent_color: int,
+    compression_method: str,
+) -> bytes:
+    return serialize_local_pack_payload(
+        SINGLE_FILE_MAGIC,
+        SINGLE_FILE_FORMAT_VERSION,
+        pack,
+        built_cards,
+        transparent_color,
+        compression_method,
+    )
+
+
+def serialize_shard(
+    pack: PackSource,
+    built_cards: list[BuiltCard],
+    transparent_color: int,
+    compression_method: str,
+) -> bytes:
+    return serialize_local_pack_payload(
+        SHARD_MAGIC,
+        MULTIFILE_FORMAT_VERSION,
+        pack,
+        built_cards,
+        transparent_color,
+        compression_method,
+    )
+
+
+def serialize_manifest(
+    pack: PackSource,
+    transparent_color: int,
+    compression_method: str,
+    palette_entry_count: int,
+    shard_entries: list[ShardDirectoryEntry],
+) -> bytes:
+    if not shard_entries:
+        raise ValueError("Manifest requires at least one shard entry.")
+
+    header_size = struct.calcsize(HEADER_FORMAT)
+    shard_record_size = struct.calcsize(SHARD_DIRECTORY_FORMAT)
+    shard_table_offset = header_size
+    string_table_offset = shard_table_offset + (len(shard_entries) * shard_record_size)
+
+    strings = StringTable()
+    description_rel_offset = strings.add(pack.description)
+    string_blob = strings.to_bytes()
+
+    shard_blob = bytearray()
+    for entry in shard_entries:
+        shard_blob.extend(
+            struct.pack(
+                SHARD_DIRECTORY_FORMAT,
+                text_to_bytes(entry.var_name).ljust(8, b"\x00")[:8],
+                entry.first_card_index,
+                entry.card_count,
+                entry.payload_size,
+                0,
+            )
+        )
+
+    payload_size = string_table_offset + len(string_blob)
+    if payload_size > MAX_PAYLOAD_BYTES:
+        raise ValueError(
+            f"Manifest payload is too large for this format/wrapper: {payload_size} bytes."
+        )
+
+    header = serialize_common_header(
+        MANIFEST_MAGIC,
+        MULTIFILE_FORMAT_VERSION,
+        sum(entry.card_count for entry in shard_entries),
+        palette_entry_count,
+        transparent_color,
+        pack.pack_identifier,
+        compression_method,
+        string_table_offset + description_rel_offset,
+        shard_table_offset,
+        string_table_offset,
+        0,
+    )
+
+    return header + bytes(shard_blob) + string_blob
+
+
+def to_base36(value: int, width: int) -> str:
+    if value < 0:
+        raise ValueError("Base36 values must be non-negative.")
+    alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    result = []
+    while value:
+        value, digit = divmod(value, 36)
+        result.append(alphabet[digit])
+    if not result:
+        result.append("0")
+    encoded = "".join(reversed(result))
+    if len(encoded) > width:
+        raise ValueError("Value does not fit in requested base36 width.")
+    return encoded.rjust(width, "0")
+
+
+def build_manifest_name(var_name: str) -> str:
+    return normalize_var_name(var_name)
+
+
+def build_shard_names(manifest_name: str, shard_count: int) -> list[str]:
+    prefix = manifest_name[:4].ljust(4, "X")
+    for marker in SHARD_MARKER_CANDIDATES:
+        shard_names = [f"{prefix}{marker}{to_base36(index, 3)}" for index in range(shard_count)]
+        if manifest_name not in shard_names and len(set(shard_names)) == len(shard_names):
+            return shard_names
+    raise ValueError(f"Could not derive unique shard names from manifest name {manifest_name}.")
+
+
+def partition_pack_into_shards(
+    pack: PackSource,
+    built_cards: list[BuiltCard],
+    manifest_name: str,
+    transparent_color: int,
+    compression_method: str,
+) -> list[BuiltShard]:
+    shard_counts: list[int] = []
+    start_index = 0
+
+    while start_index < len(built_cards):
+        low = 1
+        high = len(built_cards) - start_index
+        best_count = 0
+        best_payload: bytes | None = None
+        while low <= high:
+            mid = (low + high) // 2
+            candidate_cards = built_cards[start_index : start_index + mid]
+            try:
+                candidate_payload = serialize_shard(
+                    pack,
+                    candidate_cards,
+                    transparent_color,
+                    compression_method,
+                )
+            except ValueError:
+                candidate_payload = None
+            if candidate_payload is not None and len(candidate_payload) <= MAX_PAYLOAD_BYTES:
+                best_count = mid
+                best_payload = candidate_payload
+                low = mid + 1
+            else:
+                high = mid - 1
+
+        if best_count == 0 or best_payload is None:
+            raise ValueError(
+                f"Card {built_cards[start_index].source.name} does not fit in a single shard."
+            )
+
+        shard_counts.append(best_count)
+        start_index += best_count
+
+    shard_names = build_shard_names(manifest_name, len(shard_counts))
+    shards: list[BuiltShard] = []
+    start_index = 0
+    for shard_index, card_count in enumerate(shard_counts):
+        shard_cards = built_cards[start_index : start_index + card_count]
+        shards.append(
+            BuiltShard(
+                var_name=shard_names[shard_index],
+                first_card_index=start_index,
+                built_cards=shard_cards,
+                payload=serialize_shard(pack, shard_cards, transparent_color, compression_method),
+            )
+        )
+        start_index += card_count
+
+    return shards
+
+
 TI_VAR_APPVAR_TYPE = 0x15
 TI_VAR_FLAG_ARCHIVED = 0x80
 
 
 def export8xv(filepath: Path, filename: str, filedata: bytes) -> Path:
+    filename = normalize_var_name(filename)
     data_size = len(filedata) + 2
     if data_size > 0xFFFF:
         raise ValueError(f"Appvar payload exceeds uint16 size limit: {len(filedata)} bytes.")
@@ -901,6 +1180,7 @@ def build_pack(
     transparent_color: int,
     compression_method: str,
     compressor_path: Path | None,
+    output_format: str,
 ) -> None:
     frame_cache: dict[str, Image.Image] = {}
     built_cards = [
@@ -916,20 +1196,108 @@ def build_pack(
         for card in pack.cards
     ]
 
-    payload = serialize_pack(pack, built_cards, transparent_color, compression_method)
-    output_path = export8xv(bin_dir, var_name, payload)
     contact_sheet = build_contact_sheet(pack, built_cards, preview_dir)
+    manifest_name = build_manifest_name(var_name)
+    single_payload_bytes = estimate_local_pack_payload_size(pack, built_cards)
+
+    if output_format == "single":
+        if single_payload_bytes > MAX_PAYLOAD_BYTES:
+            raise ValueError(
+                "Single-file output was requested, but the payload exceeds the appvar limit by "
+                f"{single_payload_bytes - MAX_PAYLOAD_BYTES} bytes."
+            )
+        payload = serialize_pack(pack, built_cards, transparent_color, compression_method)
+        output_path = export8xv(bin_dir, manifest_name, payload)
+
+        print(f"processed: {len(built_cards)} cards")
+        print(f"preview dir: {preview_dir}")
+        print(f"contact sheet: {contact_sheet}")
+        print("output format: single")
+        print(f"payload magic: {SINGLE_FILE_MAGIC.decode(TEXT_ENCODING)}")
+        print(f"payload version: {SINGLE_FILE_FORMAT_VERSION}")
+        print(f"compression: {compression_method} ({COMPRESSION_METHODS[compression_method]['code']})")
+        print(f"palette entries: {palette_colors}")
+        print(f"transparent color: 0x{transparent_color:04X}")
+        print(f"pack file: {output_path}")
+        print(f"payload bytes: {len(payload)}")
+        return
+
+    use_multifile = output_format == "multi" or single_payload_bytes > MAX_PAYLOAD_BYTES
+    if not use_multifile:
+        payload = serialize_pack(pack, built_cards, transparent_color, compression_method)
+        output_path = export8xv(bin_dir, manifest_name, payload)
+
+        print(f"processed: {len(built_cards)} cards")
+        print(f"preview dir: {preview_dir}")
+        print(f"contact sheet: {contact_sheet}")
+        print("output format: single")
+        print(f"payload magic: {SINGLE_FILE_MAGIC.decode(TEXT_ENCODING)}")
+        print(f"payload version: {SINGLE_FILE_FORMAT_VERSION}")
+        print(f"compression: {compression_method} ({COMPRESSION_METHODS[compression_method]['code']})")
+        print(f"palette entries: {palette_colors}")
+        print(f"transparent color: 0x{transparent_color:04X}")
+        print(f"pack file: {output_path}")
+        print(f"payload bytes: {len(payload)}")
+        return
+
+    shards = partition_pack_into_shards(
+        pack,
+        built_cards,
+        manifest_name,
+        transparent_color,
+        compression_method,
+    )
+    shard_entries = [
+        ShardDirectoryEntry(
+            var_name=shard.var_name,
+            first_card_index=shard.first_card_index,
+            card_count=len(shard.built_cards),
+            payload_size=len(shard.payload),
+        )
+        for shard in shards
+    ]
+    manifest_payload = serialize_manifest(
+        pack,
+        transparent_color,
+        compression_method,
+        palette_colors,
+        shard_entries,
+    )
+    manifest_path = export8xv(bin_dir, manifest_name, manifest_payload)
+    shard_paths = [export8xv(bin_dir, shard.var_name, shard.payload) for shard in shards]
 
     print(f"processed: {len(built_cards)} cards")
     print(f"preview dir: {preview_dir}")
     print(f"contact sheet: {contact_sheet}")
-    print(f"payload magic: {MAGIC.decode(TEXT_ENCODING)}")
-    print(f"payload version: {FORMAT_VERSION}")
+    print("output format: multi")
+    print(f"manifest magic: {MANIFEST_MAGIC.decode(TEXT_ENCODING)}")
+    print(f"shard magic: {SHARD_MAGIC.decode(TEXT_ENCODING)}")
+    print(f"payload version: {MULTIFILE_FORMAT_VERSION}")
     print(f"compression: {compression_method} ({COMPRESSION_METHODS[compression_method]['code']})")
     print(f"palette entries: {palette_colors}")
     print(f"transparent color: 0x{transparent_color:04X}")
-    print(f"pack file: {output_path}")
-    print(f"payload bytes: {len(payload)}")
+    print(f"manifest file: {manifest_path}")
+    print(f"manifest payload bytes: {len(manifest_payload)}")
+    print(f"shard count: {len(shards)}")
+    for shard, shard_path in zip(shards, shard_paths):
+        shard_last_card = shard.first_card_index + len(shard.built_cards) - 1
+        print(
+            "shard file: "
+            f"{shard_path} (cards {shard.first_card_index}-{shard_last_card}, payload {len(shard.payload)} bytes)"
+        )
+    if output_format == "auto" and single_payload_bytes > MAX_PAYLOAD_BYTES:
+        print(
+            "notice: single-file output exceeded the appvar limit; "
+            f"used manifest+shards instead ({single_payload_bytes - MAX_PAYLOAD_BYTES} bytes over)."
+        )
+    if (
+        single_payload_bytes > MAX_PAYLOAD_BYTES
+        and (single_payload_bytes - MAX_PAYLOAD_BYTES) <= NEAR_SINGLE_FILE_WARNING_BYTES
+    ):
+        print(
+            "warning: sharding occurred even though the pack almost fit in one appvar "
+            f"({single_payload_bytes - MAX_PAYLOAD_BYTES} bytes over the single-file limit)."
+        )
 
 
 def main() -> int:
@@ -944,7 +1312,7 @@ def main() -> int:
 
     pack = load_pack_source(data_file)
     validate_pack_source(pack, source_dir, args.palette_colors)
-    var_name = args.var_name or get_default_var_name(pack.pack_identifier)
+    var_name = normalize_var_name(args.var_name or get_default_var_name(pack.pack_identifier))
 
     if args.image:
         inspect_single_card(
@@ -969,6 +1337,7 @@ def main() -> int:
         transparent_color=args.transparent_color,
         compression_method=args.compression,
         compressor_path=args.compressor_path,
+        output_format=args.format,
     )
     return 0
 

@@ -532,7 +532,10 @@ void initGame(uint8_t *packptr) {
 
     if (ruleFlags & RULE_RANDOM) {
         for (i = 0; i < GAME_CARD_SLOT_COUNT; i++) {
-            loadcardslot(packptr, randInt(0, card_count - 1), i);
+            if (!loadcardslot(packptr, randInt(0, card_count - 1), i)) {
+                gamemode = GM_TITLE;
+                return;
+            }
             cardbuf[i]->gridpos = i + 10;
             cardbuf[i]->isplayer1 = (i < 5) ? 1 : 0;
             cardbuf[i]->x = posarr[(i + 10) * 2];

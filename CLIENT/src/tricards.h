@@ -24,8 +24,8 @@
 #define CARD_HEIGHT 52
 #define GAME_CARD_SLOT_COUNT 10
 #define PACK_SELECTOR_PREVIEW_COUNT 5
-#define CARD_PACK_SELECTOR_SLOT_BASE GAME_CARD_SLOT_COUNT
-#define CARD_BROWSER_PREVIEW_SLOT (CARD_PACK_SELECTOR_SLOT_BASE + PACK_SELECTOR_PREVIEW_COUNT)
+#define CARD_PACK_SELECTOR_SLOT_BASE 0
+#define CARD_BROWSER_PREVIEW_SLOT GAME_CARD_SLOT_COUNT
 #define CARD_SLOT_COUNT (CARD_BROWSER_PREVIEW_SLOT + 1)
 #define CARD_IMAGE_BUFFER_SIZE (CARD_WIDTH * CARD_HEIGHT + 2)
 #define INTERNAL_PALETTE_BASE_INDEX 0
@@ -44,7 +44,7 @@
 #define LIST_TX_S INTERNAL_PALETTE_COLOR(11)
 #define PLAYER1_BG INTERNAL_PALETTE_COLOR(12)
 #define INTERNAL_WHITE_COLOR INTERNAL_PALETTE_COLOR(13)
-#define CARD_PALETTE_BASE_INDEX 100
+#define CARD_PALETTE_BASE_INDEX 64
 #define CARD_PALETTE_SLICE_SIZE(palette_entries) ((palette_entries) + 1)
 #define CARD_SLOT_PALETTE_INDEX(slot, palette_entries) \
     (CARD_PALETTE_BASE_INDEX + ((slot) * CARD_PALETTE_SLICE_SIZE(palette_entries)))
@@ -100,6 +100,14 @@ enum packCompressionMethod {
     PACK_COMPRESSION_ZX0 = 1
 };
 
+#define TRICARD_MAGIC_LENGTH 8
+#define TRICARD_VAR_NAME_LENGTH 8
+#define TRICARD_SINGLE_FILE_MAGIC "Tri2Pak!"
+#define TRICARD_MANIFEST_MAGIC "Tri2Mft!"
+#define TRICARD_SHARD_MAGIC "Tri2Shd!"
+#define TRICARD_SINGLE_FILE_VERSION 2
+#define TRICARD_MULTIFILE_VERSION 3
+
 typedef struct __attribute__((packed)) tricard_pack_header_t {
     char magic[8];
     uint8_t version;
@@ -129,8 +137,17 @@ typedef struct __attribute__((packed)) tricard_card_metadata_t {
     uint16_t image_size;
 } tricard_card_metadata_t;
 
+typedef struct __attribute__((packed)) tricard_manifest_shard_t {
+    char var_name[8];
+    uint16_t first_card_index;
+    uint16_t card_count;
+    uint16_t payload_size;
+    uint16_t reserved;
+} tricard_manifest_shard_t;
+
 _Static_assert(sizeof(tricard_pack_header_t) == 32, "tricard_pack_header_t must stay 32 bytes");
 _Static_assert(sizeof(tricard_card_metadata_t) == 16, "tricard_card_metadata_t must stay 16 bytes");
+_Static_assert(sizeof(tricard_manifest_shard_t) == 16, "tricard_manifest_shard_t must stay 16 bytes");
 
 typedef struct tricard_card_source_t {
     const tricard_card_metadata_t *metadata;
@@ -204,12 +221,15 @@ void pcharxy(char c, int x, uint8_t y);
 void drawbg(void);
 
 char *selectpack(void);
+uint8_t countpacks(void);
+bool getpackname(uint8_t pack_index, char *out_name);
 uint8_t *getpackadr(char *varname);
 void closepack(void);
 const tricard_pack_header_t *getpackheader(uint8_t *packptr);
 const tricard_card_metadata_t *getcardmetadata(uint8_t *packptr, uint16_t cardnum);
 const char *getpackdescription(uint8_t *packptr);
 uint16_t getpackcardcount(uint8_t *packptr);
+const char *getcardname(uint8_t *packptr, uint16_t cardnum);
 void resetcardslot(uint8_t cardslot);
 bool loadcardslot(uint8_t *packptr, uint16_t cardnum, uint8_t cardslot);
 

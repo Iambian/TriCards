@@ -19,12 +19,18 @@ examples provided.
 
 Version 2 pack builder (`BUILDER\tools\tkit2.py`)
 -------------------------------------------------
-* `tkit2.py` builds the newer `Tri2Pak!` pack format used by the current client.
+* `tkit2.py` builds the newer `Tri2Pak!` pack format used by the current client,
+  and can also emit the manifest+shards format that the current client now
+  recognizes for oversized packs.
 * Default source input is `BUILDER\src\ff8packorig` and default previews go to
   `BUILDER\obj\tkit2`.
 * Basic usage: `python BUILDER\tools\tkit2.py --compression zx0 --var-name CRP7FF8`
-* The script defaults to `zx7`, but the default FF8 source pack currently fits
-  only with `--compression zx0`.
+* The builder defaults to `--format auto`: it tries single-file output first,
+  then falls back to a manifest plus shards if the payload does not fit in one
+  appvar.
+* The script still defaults to `zx7`, but the default FF8 source pack currently
+  needs `--compression zx0 --format single` if you specifically want the
+  checked-in client's current one-file path.
 * `tkit2.py` now detects whether a removable frame is actually present. If a
   card does not appear to match the expected frame, the script skips frame
   masking and crop-box trimming and simply resizes the source art to `52x52`.
@@ -33,6 +39,8 @@ Version 2 pack builder (`BUILDER\tools\tkit2.py`)
 * Single-image inspection mode is available by passing an image filename instead
   of building a full pack. Use `--card-type` if the image is not listed in the
   pack JSON.
+* The current client now supports both single-file `Tri2Pak!` packs and the new
+  manifest+shards format (`Tri2Mft!` + `Tri2Shd!`).
 * See `BUILDER\readme.md` for the full `tkit2.py` workflow and configuration
   details.
 
@@ -59,7 +67,7 @@ What has been changed so far:
 * Internal client assets are no longer using the old implicit xlibc-only setup.
   `make gfx` now generates a shared internal palette from `convimg.yaml`, and
   the client loads that palette at runtime.
-* Card images now use per-slot palette slices starting at palette index `100`.
+* Card images now use per-slot palette slices starting at palette index `64`.
 * The pack loader now derives card-record width from the pack table offsets at
   runtime, which fixed browser mismatches caused by assuming record stride from
   palette-count metadata alone.
@@ -79,8 +87,9 @@ What has been changed so far:
 * Starting a match now opens a centered pre-match rule-selection screen before
   gameplay begins. It defaults to `Open + Random + Elemental + Sudden Death`,
   keeps `Random` locked on, and lets `[Mode]` back out to card pack selection.
-* Menu previews now use dedicated non-gameplay card slots, and the card image
-  pool is statically allocated instead of coming from the heap.
+* Card preview storage now reuses gameplay slots for pack selection and keeps one
+  extra browser preview slot; the card image pool is statically allocated
+  instead of coming from the heap.
 
 The custom palette migration itself should now be treated as complete. The
 remaining active work is around broader pack-format/runtime evolution rather

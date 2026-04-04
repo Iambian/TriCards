@@ -16,7 +16,7 @@ python BUILDER\tools\tkit2.py --compression zx0 --var-name CRP7FF8
 ```
 
 That command builds the default source pack from `BUILDER\src\ff8packorig`,
-writes preview images to `BUILDER\obj\tkit2`, and writes the appvar to
+writes preview images to `BUILDER\obj\tkit2`, and writes the appvar output to
 `BUILDER\bin`.
 
 ## Defaults
@@ -35,11 +35,25 @@ writes preview images to `BUILDER\obj\tkit2`, and writes the appvar to
 | Shared transparent color | `0x7C1F` |
 | Compression | `zx7` |
 
+## Output format selection
+
+`tkit2.py` now supports three output modes:
+
+| Option | Meaning |
+| --- | --- |
+| `--format auto` | Try single-file `Tri2Pak!` first, then fall back to manifest+shards if needed |
+| `--format single` | Build only the single-file `Tri2Pak!` format and fail if it does not fit |
+| `--format multi` | Always emit the manifest+shards format, even if one file would have fit |
+
+`auto` is the default.
+
 ## Important usage note for the default FF8 source pack
 
-The script default compression is `zx7`, but the default FF8 source pack in this
-repository currently exceeds the format size limit with that setting. Use
-`--compression zx0` for the default FF8 build.
+The script default compression is `zx7`. With that setting, the default FF8
+source pack in this repository no longer fits in one appvar, so `--format auto`
+will emit a manifest plus shard files. Use `--compression zx0 --format single`
+if you specifically want the checked-in FF8 pack to stay on the old one-file
+layout.
 
 ## Full build usage
 
@@ -50,6 +64,7 @@ python BUILDER\tools\tkit2.py ^
   --preview-dir BUILDER\obj\mypack ^
   --bin-dir BUILDER\bin ^
   --var-name MYPACK ^
+  --format auto ^
   --palette-colors 7 ^
   --transparent-color 0x7C1F ^
   --compression zx0
@@ -64,8 +79,9 @@ python BUILDER\tools\tkit2.py ^
 | `--data-file` | JSON metadata file |
 | `--card-type` | Card type override for single-image inspection |
 | `--preview-dir` | Directory for masked/cropped/resized/preview PNGs |
-| `--bin-dir` | Output directory for the `.8xv` file |
-| `--var-name` | TI appvar variable name |
+| `--bin-dir` | Output directory for the `.8xv` file or files |
+| `--var-name` | Base TI appvar variable name; multi-file builds use it for the manifest |
+| `--format` | `auto`, `single`, or `multi` |
 | `--palette-colors` | Opaque palette entry count stored per card |
 | `--transparent-color` | Shared RGB1555 transparent color |
 | `--compression` | `zx7` or `zx0` |
@@ -174,7 +190,126 @@ When building a full pack, `tkit2.py` writes:
 
 1. preview/intermediate images in the preview directory
 2. a contact sheet in the preview directory
-3. the final `.8xv` appvar in the bin directory
+3. either:
+   - one single-file `Tri2Pak!` `.8xv` appvar, or
+   - one manifest `.8xv` plus one or more shard `.8xv` appvars
+
+## Multi-file format
+
+The multi-file format is intended for packs that do not fit in one appvar. The
+current checked-in client now supports both the single-file `Tri2Pak!` format
+and the manifest+shards path described below.
+
+### Common 32-byte header
+
+Both the manifest and each shard reuse the same packed 32-byte header shape used
+by the single-file format:
+
+```text
+magic[8]
+version
+card_count
+palette_entry_count
+transparent_color
+pack_identifier[9]
+compression_method
+description_offset
+record_table_offset
+string_table_offset
+image_blob_offset
+```
+
+### Manifest payload (`Tri2Mft!`, version 3)
+
+The manifest payload layout is:
+
+```text
+Common header
+Shard directory table
+String table
+```
+
+Manifest field meanings:
+
+| Field | Meaning |
+| --- | --- |
+| `magic` | `Tri2Mft!` |
+| `version` | `3` |
+| `card_count` | Total cards across all shards |
+| `palette_entry_count` | Shared per-card palette width for the whole pack |
+| `transparent_color` | Shared RGB1555 transparent color |
+| `pack_identifier` | Same logical pack identifier as the shards |
+| `compression_method` | Shared card-image compression mode |
+| `description_offset` | Absolute offset to the pack description string |
+| `record_table_offset` | Start of the shard directory table |
+| `string_table_offset` | Start of the manifest string table |
+| `image_blob_offset` | Reserved, currently `0` for manifests |
+
+The manifest does not contain card records or image data. Instead, the shard
+directory replaces the record table.
+
+### Shard directory entry
+
+Each shard directory entry is 16 bytes:
+
+```text
+var_name[8]
+first_card_index   uint16
+card_count         uint16
+payload_size       uint16
+reserved           uint16
+```
+
+The directory entry count is derived from:
+
+```text
+(string_table_offset - record_table_offset) / 16
+```
+
+`first_card_index` is the zero-based global card index of the shard's first
+card. `card_count` is the number of cards stored in that shard. `payload_size`
+is the shard payload length before the TI appvar wrapper is added.
+
+### Shard payload (`Tri2Shd!`, version 3)
+
+Each shard payload layout is intentionally close to the single-file format:
+
+```text
+Common header
+Card record table
+String table
+Image blob
+```
+
+Shard field meanings match the single-file format. The important constraint is
+that all name/image offsets remain **local to the shard payload**, not global to
+the logical pack. That lets future client code reuse the local pack parsing path
+once it has opened the correct shard.
+
+### Naming
+
+In a multi-file build:
+
+1. the manifest uses the requested `--var-name`
+2. shards derive deterministic sibling names from that manifest name
+
+Example:
+
+```text
+CRP7FF8.8xv   manifest
+CRP7S000.8xv shard 0
+CRP7S001.8xv shard 1
+```
+
+### Auto-fallback and near-fit warning
+
+When `--format auto` is active, the builder first sizes the single-file payload.
+If it would exceed the appvar payload limit, the builder emits the manifest plus
+shards instead.
+
+If sharding occurs and the single-file payload missed the limit by **1024 bytes
+or less**, the builder prints an extra warning so it is obvious that the pack
+was close to fitting in one file.
 
 ## Legacy builder
 

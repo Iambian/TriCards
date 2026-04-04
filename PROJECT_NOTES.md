@@ -20,7 +20,7 @@ Completed so far:
 1. The client was split into `main.c`, `card_loading.c`, `gameplay.c`, and `tricards.h`.
 2. Internal client graphics were moved to a generated convimg palette flow driven by `CLIENT/src/gfx/convimg.yaml`.
 3. Internal built-in art now uses a shared generated palette loaded at runtime.
-4. Loaded card art now uses per-slot palette slices starting at palette index `100`.
+4. Loaded card art now uses per-slot palette slices starting at palette index `64`.
 5. The pack loader now derives runtime record width from the pack table offsets instead of assuming it from the header palette count alone.
 6. The card browser no longer reloads a palette-bearing slot just to print list names, and its selected-card preview now uses a dedicated runtime slot.
 7. Each runtime card slot now tracks its own base palette entry so the serialized `255` pixels can be remapped to a slot-local background color instead of one fixed shared color.
@@ -259,7 +259,7 @@ Relevant points:
 - The generated palette currently exposes `sizeof_internal_palette == 128`, which is 64 palette entries.
 - Runtime code copies that palette into `gfx_palette` at startup.
 - Internal built-in art uses transparent index `0`.
-- Card images use separate per-slot palette slices starting at palette index `100`.
+- Card images use separate per-slot palette slices starting at palette index `64`.
 
 So the active design is a split model:
 
@@ -318,7 +318,7 @@ Current behavior in `card_loading.c`:
 
 1. Read the shared transparent RGB1555 color from the pack header.
 2. Read the per-card compact palette from the card record.
-3. Allocate the target slot's hardware palette slice starting at `CARD_PALETTE_BASE_INDEX + slot * (palette_entries + 1)`.
+3. Allocate the target slot's hardware palette slice starting at `CARD_PALETTE_BASE_INDEX + slot * (palette_entries + 1)`, with `CARD_PALETTE_BASE_INDEX` currently set to `64`.
 4. Store the slot-local base color entry first.
 5. Copy the per-card RGB1555 palette immediately after it.
 6. Decompress the card image bytes.
@@ -365,7 +365,8 @@ The client scans installed variables using `ti_Detect(&sp, card_pack_header)` wh
 - `card_loading.c` now contains the central pack parsing and load helpers used by both the browser and the game.
 - The browser list now reads card names directly from metadata instead of repeatedly reloading slot `0`, which avoids palette-slice churn on the already-drawn preview.
 - The selected browser preview uses its own runtime slot so it does not inherit transient palette updates from the pack selection preview.
-- Selector/browser preview rendering now uses dedicated non-gameplay card slots
+- Selector preview rendering now reuses gameplay card slots, while the browser
+  keeps one dedicated preview slot
   instead of borrowing the first gameplay slots.
 - Preview cards in the selector and browser now retint their slot-local base
   palette entry to `FILE_EXPLORER_BGCOLOR`, so their faux-transparent pixels

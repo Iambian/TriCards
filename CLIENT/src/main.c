@@ -231,7 +231,6 @@ static uint8_t getbrowserpageoptions(uint16_t card_count, uint8_t page) {
 
 int main(void) {
     char *varname,*cardtypestr;
-    void *vat_ptr;
     uint8_t *packptr,*dataptr,i,j,y,copt,mopt,cpage,mpage;
     uint16_t card_count;
     uint16_t card_index;
@@ -244,7 +243,6 @@ int main(void) {
     gfx_SetDrawBuffer();
     gfx_SetTransparentColor(INTERNAL_TRANSPARENT_INDEX);
     cardposbackup = cpage = mpage = copt = mopt = gamemode = curpack = maxpack = 0;
-    vat_ptr = NULL;
     packptr = dataptr = NULL;
     for (i = 0; i < CARD_SLOT_COUNT; i++) {
         cardbuf[i] = &card_slots[i];
@@ -259,7 +257,7 @@ int main(void) {
     }
     zx7_Decompress(cardback = malloc(CARD_WIDTH*CARD_HEIGHT+2),cardback_compressed);
 
-    while (ti_Detect(&vat_ptr,card_pack_header)) { maxpack++; }
+    maxpack = countpacks();
     dataptr = malloc(9*(8*8+2));
     for(i=0;i<9;i++,dataptr+=66) zx7_Decompress(elemdat[i]=dataptr,elemcdat[i]);
 
@@ -307,7 +305,7 @@ int main(void) {
                 gamemode = GM_CARDLISTER;
             }
             else if (gamemode == GM_CARDLISTER) {
-                const tricard_card_metadata_t *metadata;
+                const char *card_name;
                 tricard_card_slot_t *preview_slot;
 
                 if (packptr == NULL) {
@@ -343,9 +341,9 @@ int main(void) {
                         gfx_SetTextFGColor(LIST_TX_S);
                     }
                     gfx_FillRectangle_NoClip(5,y,200,LIST_LINE_HEIGHT);
-                    metadata = getcardmetadata(packptr, card_index);
-                    if (metadata != NULL && metadata->rank) {
-                        gfx_PrintStringXY((char *)(packptr + metadata->name_offset),10,y+2);
+                    card_name = getcardname(packptr, card_index);
+                    if (card_name != NULL) {
+                        gfx_PrintStringXY((char *)card_name,10,y+2);
                     }
                     gfx_SetTextFGColor(MENU_TEXT_COLOR);
                 }
@@ -546,29 +544,25 @@ void pcharxy(char c,int x,uint8_t y) { gfx_SetTextXY(x,y); gfx_PrintChar(c); }
 void drawbg(void) { gfx_FillScreen(FILE_EXPLORER_BGCOLOR); }
 
 char *selectpack(void) {
-    void *vat_ptr;
+    static char selected_pack_name[TRICARD_VAR_NAME_LENGTH + 1];
+    char pack_name[TRICARD_VAR_NAME_LENGTH + 1];
     uint8_t *packptr,i;
     uint16_t card_count;
     int x;
     char pack_identifier[10];
-    char *vn;
     kb_key_t k,k7;
 
-    vat_ptr = NULL;
-    vn = NULL;
     while (1) {
         kb_Scan();
         k = kb_Data[1];
         k7= kb_Data[7];
         drawbg();
 
-        vn = NULL;
-        for (i=0,vat_ptr=NULL;i<(curpack+1);i++,vn=ti_Detect(&vat_ptr,card_pack_header));
-        if (!vn) {
+        if (!getpackname(curpack, pack_name)) {
             closepack();
             return NULL;
         }
-        packptr = getpackadr(vn);
+        packptr = getpackadr(pack_name);
         if (packptr == NULL) {
             continue;
         }
@@ -584,7 +578,7 @@ char *selectpack(void) {
 
         ctext((char*)getpackdescription(packptr),70);
         gfx_PrintStringXY("Filename: ",5,85);
-        gfx_PrintString(vn);
+        gfx_PrintString(pack_name);
         gfx_PrintString(", descriptor: ");
         memcpy(pack_identifier, getpackheader(packptr)->pack_identifier, 9);
         pack_identifier[9] = 0x00;
@@ -614,8 +608,10 @@ char *selectpack(void) {
             return NULL;
         }
         if (k&kb_2nd) {
+            strncpy(selected_pack_name, pack_name, TRICARD_VAR_NAME_LENGTH);
+            selected_pack_name[TRICARD_VAR_NAME_LENGTH] = 0x00;
             closepack();
-            return vn;
+            return selected_pack_name;
         }
         if ((k7&(kb_Left|kb_Up))&&curpack) curpack--;
         if ((k7&(kb_Right|kb_Down))&&(curpack<(maxpack-1))) curpack++;
