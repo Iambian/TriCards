@@ -93,6 +93,13 @@ enum playRuleFlags {
     RULE_ELEMENTAL = 128
 };
 
+enum player2ControlMode {
+    PLAYER2_CONTROL_MANUAL = 0,
+    PLAYER2_AI_EASY = 1,
+    PLAYER2_AI_MEDIUM = 2,
+    PLAYER2_AI_HARD = 3
+};
+
 #define DEFAULT_RULE_FLAGS (RULE_OPEN | RULE_RANDOM | RULE_ELEMENTAL | RULE_SUDDENDEATH)
 
 enum packCompressionMethod {
@@ -194,6 +201,7 @@ extern uint8_t maxpack;
 extern uint8_t gamemode;
 extern uint8_t selcard;
 extern uint8_t curplayer;
+extern uint8_t player2_ai_difficulty;
 extern uint8_t ruleFlags;
 extern uint8_t issuddendeath;
 
@@ -236,6 +244,7 @@ bool loadcardslot(uint8_t *packptr, uint16_t cardnum, uint8_t cardslot);
 void redrawboard(void);
 uint8_t selectfromhand(uint8_t direction);
 tricard_card_slot_t *getcardongrid(uint8_t gridpos);
+bool getplayer2aimove(uint8_t *out_card_slot, uint8_t *out_gridpos);
 void cardfight(uint8_t pidx, uint8_t eidx);
 void resolvecardplacement(uint8_t gridpos);
 void initGame(uint8_t *packptr);
