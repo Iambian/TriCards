@@ -73,13 +73,23 @@ On the builder side, `tkit2.py` reads `data.json` plus source images, detects wh
 
 ## Key repository-specific conventions
 
-- The current client only targets `Tri2Pak!` packs. Do not assume the legacy `TriCrPak` builder path is interchangeable with the active runtime.
-- Pack discovery is driven by the payload magic string, not just the file extension: the client scans installed appvars whose payload starts with `Tri2Pak!`.
+- The current client targets both single-file `Tri2Pak!` packs and the new multi-file manifest format `Tri2Mft!` (with shard appvars using the `Tri2Shd!` magic). Do not assume the legacy `TriCrPak` builder path is interchangeable with the active runtime.
+- Pack discovery is driven by the payload magic string, not just file extension: the client scans installed appvars whose payload starts with `Tri2Pak!` or `Tri2Mft!`. Manifest appvars are treated as a logical pack that references one or more `Tri2Shd!` shard appvars.
 - `tricard_pack_header_t` is fixed at 32 bytes and `tricard_card_metadata_t` is fixed at 16 bytes. Keep those layouts packed and stable.
 - Record stride is derived at runtime from `string_table_offset - record_table_offset`; the loader does not trust a hardcoded record width.
-- Card palettes are slot-local. Internal UI colors live at low palette indices, and runtime card palettes start at `CARD_PALETTE_BASE_INDEX` (`100`) with one transparent/background slot plus the per-card opaque entries.
-- Each runtime card slot owns its own `palette_base_index`. The pack selector/browser set that base color to the file-explorer background, while gameplay uses player background colors so captured-card transitions can animate by rewriting that slot-local base entry.
-- There are dedicated non-gameplay card slots for previews: gameplay uses slots `0-9`, pack selection uses additional preview slots, and the card browser uses its own preview slot. Reusing gameplay slots for previews can reintroduce palette instability.
+- Card palettes are slot-local. Internal UI colors live at low palette indices, and runtime card palettes start at `CARD_PALETTE_BASE_INDEX` (64) with one transparent/background slot plus the per-card opaque entries.
+- Each runtime card slot owns its own `palette_base_index`. The pack selector/browser sets that base color to the file-explorer background, while gameplay uses player background colors so captured-card transitions can animate by rewriting that slot-local base entry.
+- Gameplay card slot count was reduced so gameplay and preview slots overlap; the runtime now uses 11 gameplay slots and reuses a preview slot to reduce memory pressure. See `CLIENT/src/tricards.h` for constants (GAME_CARD_SLOT_COUNT, CARD_BROWSER_PREVIEW_SLOT).
 - Generated internal graphics use the shared `internal_palette`; loaded pack cards use per-card palettes embedded in the pack records. Keep those two palette systems separate.
 - `tkit2.py` expects pack JSON entries in the 9-field form `[rank, name, type, up, right, down, left, element, image.png]` and validates ranks/stats against the inclusive `1..10` range.
 - `tkit2.py` supports both framed and frameless source art. If a card image does not match the configured frame template closely enough, the builder skips frame masking and crop-box trimming and resizes the original source image directly.
+- Builder CLI additions and behavior:
+  - New option: `--format` (auto|single|multi). `auto` (default) attempts a single-file pack and falls back to manifest+shards when it doesn't fit. `single` forces single-file output, `multi` forces manifest+shards.
+  - New option: `--palette-colors N` controls the per-card quantized color count (default unchanged).
+  - Manifest and shard magics: `Tri2Mft!` (manifest) and `Tri2Shd!` (shard). Shards contain local pack payloads (32-byte header + local record/string/image tables) so the client can reuse local-pack parsing logic.
+  - Sharding is deterministic: shard names are derived from the manifest var-name. Partitioning maximizes cards per shard under the platform's ~64KB payload limit using a binary-search heuristic.
+  - When sharding occurs but a single-file build would have fit with only a small delta, the builder emits a "near-fit" warning (threshold: 1024 bytes by default) to help tune compression or palette size.
+- Client runtime notes:
+  - The client implements a logical-pack layer that treats manifest appvars as logical packs and resolves global card indices to the correct shard payload. Key helpers: resolvepackpayload(), openmanifestshard(), loadcardslot().
+  - The client decompresses card images into per-slot in-memory buffers and closes shards when possible; it no longer keeps persistent pointers into opened appvar payloads.
+  - Missing or incompatible shards currently cause load failures at runtime; consider adding manifest validation at selection time to improve UX.

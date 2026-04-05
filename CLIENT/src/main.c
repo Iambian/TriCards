@@ -61,7 +61,7 @@ uint8_t curpack, maxpack;
 uint8_t gamemode;
 uint8_t selcard;
 uint8_t curplayer;
-uint8_t player2_ai_difficulty = PLAYER2_CONTROL_MANUAL;
+uint8_t player2_ai_difficulty = PLAYER2_AI_HARD;
 uint8_t ruleFlags;
 uint8_t issuddendeath;
 
@@ -106,6 +106,24 @@ static const uint8_t rule_menu_flags[] = {
     RULE_SAMEWALL,
     RULE_PLUS,
     RULE_COMBO
+};
+
+typedef struct {
+    const char *label;
+    const char * const *state_labels;
+    uint8_t state_count;
+    uint8_t *value;
+} option_menu_entry_t;
+
+static const char *const player2_ai_option_states[] = {"Manual","Easy","Medium","Hard"};
+
+static const option_menu_entry_t option_menu_entries[] = {
+    {
+        "AI Difficulty",
+        player2_ai_option_states,
+        (uint8_t)(sizeof player2_ai_option_states / sizeof *player2_ai_option_states),
+        &player2_ai_difficulty
+    }
 };
 
 enum moveResolutionResult {
@@ -156,6 +174,44 @@ static const char *getruleoptionstate(uint8_t option_index) {
         return NULL;
     }
     return isruleoptionenabled(option_index) ? "ON" : "OFF";
+}
+
+static uint8_t getoptionmenuoptioncount(void) {
+    return (uint8_t)(sizeof option_menu_entries / sizeof *option_menu_entries);
+}
+
+static void normalizeoptionmenuvalues(void) {
+    uint8_t i;
+
+    for (i = 0; i < getoptionmenuoptioncount(); i++) {
+        if (*option_menu_entries[i].value >= option_menu_entries[i].state_count) {
+            *option_menu_entries[i].value = 0;
+        }
+    }
+}
+
+static const char *getoptionmenuoptionstate(uint8_t option_index) {
+    const option_menu_entry_t *option;
+    uint8_t option_value;
+
+    option = &option_menu_entries[option_index];
+    option_value = *option->value;
+    if (option_value >= option->state_count) {
+        option_value = 0;
+    }
+    return option->state_labels[option_value];
+}
+
+static void cycleoptionmenuoption(uint8_t option_index) {
+    const option_menu_entry_t *option;
+    uint8_t option_value;
+
+    option = &option_menu_entries[option_index];
+    option_value = (uint8_t)(*option->value + 1);
+    if (option_value >= option->state_count) {
+        option_value = 0;
+    }
+    *option->value = option_value;
 }
 
 static void drawruleselectmenu(uint8_t current_option) {
@@ -211,6 +267,49 @@ static void drawruleselectmenu(uint8_t current_option) {
                 );
             }
         }
+        gfx_SetTextFGColor(MENU_TEXT_COLOR);
+    }
+}
+
+static void drawoptionsmenu(uint8_t current_option) {
+    uint8_t i;
+    uint8_t option_count;
+    uint8_t box_x;
+    uint8_t box_y;
+    uint8_t box_w;
+    uint8_t row_y;
+    const char *state_text;
+
+    option_count = getoptionmenuoptioncount();
+    box_w = 200;
+    box_x = (uint8_t)((LCD_WIDTH - box_w) / 2);
+    box_y = 56;
+
+    drawbg();
+    textscale2();
+    ctext("Options",5);
+    textscale1();
+    gfx_PrintStringXY("Settings apply immediately.", box_x, 32);
+    gfx_PrintStringXY("2nd: cycle setting", box_x, 216);
+    gfx_PrintStringXY("Mode: return to title", box_x, 228);
+
+    for (i = 0, row_y = box_y; i < option_count; i++, row_y += LIST_LINE_HEIGHT) {
+        gfx_SetColor(listcolors[i & 1]);
+        if (i == current_option) {
+            gfx_SetColor(LIST_BG_S);
+            gfx_SetTextFGColor(LIST_TX_S);
+        } else {
+            gfx_SetTextFGColor(MENU_TEXT_COLOR);
+        }
+
+        gfx_FillRectangle_NoClip(box_x, row_y, box_w, LIST_LINE_HEIGHT);
+        gfx_PrintStringXY((char *)option_menu_entries[i].label, box_x + 8, row_y + 2);
+        state_text = getoptionmenuoptionstate(i);
+        gfx_PrintStringXY(
+            (char *)state_text,
+            box_x + box_w - gfx_GetStringWidth(state_text) - 8,
+            row_y + 2
+        );
         gfx_SetTextFGColor(MENU_TEXT_COLOR);
     }
 }
@@ -365,7 +464,13 @@ int main(void) {
             }
             if (k|k7) keywait();
             if (gamemode==GM_TITLE) {
-                if (k&kb_2nd) { gamemode = main_menu_dest[copt]; continue; }
+                if (k&kb_2nd) {
+                    gamemode = main_menu_dest[copt];
+                    if (gamemode == GM_OPTIONS) {
+                        copt = 0;
+                    }
+                    continue;
+                }
                 if (k&kb_Mode) { break; }
                 if (k7&(kb_Up|kb_Left)) copt--;
                 if (k7&(kb_Down|kb_Right)) copt++;
@@ -376,6 +481,35 @@ int main(void) {
                 dmenu(main_menu_text,copt,4);
                 textscale1();
                 gfx_PrintStringXY(VERSION_INFO,290,230);
+            }
+            else if (gamemode == GM_OPTIONS) {
+                uint8_t option_count;
+
+                option_count = getoptionmenuoptioncount();
+                if (!option_count) {
+                    gamemode = GM_TITLE;
+                    continue;
+                }
+
+                normalizeoptionmenuvalues();
+                if (copt >= option_count) {
+                    copt = (uint8_t)(option_count - 1);
+                }
+
+                drawoptionsmenu(copt);
+                if (k & kb_Mode) {
+                    gamemode = GM_TITLE;
+                    continue;
+                }
+                if ((k7 & kb_Up) && copt) {
+                    copt--;
+                }
+                if ((k7 & kb_Down) && copt < (option_count - 1)) {
+                    copt++;
+                }
+                if (k & kb_2nd) {
+                    cycleoptionmenuoption(copt);
+                }
             }
             else if (gamemode == GM_BROWSEPACK) {
                 if ((varname = selectpack()) == NULL) { gamemode = GM_TITLE; continue; }
