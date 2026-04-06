@@ -72,6 +72,8 @@ converts:
     palette: internal_palette
     palette-offset: 0
     transparent-index: 0
+    style: palette
+    width-and-height: true
     images:
       - board-mat-L.png
 
@@ -79,6 +81,8 @@ converts:
     palette: internal_palette
     palette-offset: 0
     transparent-index: 0
+    style: palette
+    width-and-height: true
     images:
       - board-mat-R.png
 

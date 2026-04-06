@@ -54,7 +54,10 @@ Building Pack Viewer / Game Player
 * `make gfx` also builds the optional fullscreen board-mat halves
   `TRICARDL.8xv` and `TRICARDR.8xv` into `CLIENT\src\gfx\out`. These come from
   `board-mat-L.png` and `board-mat-R.png`, are quantized against the shared
-  `internal_palette`, and are not wired into the client runtime yet.
+  `internal_palette`, and use raw sprite payloads with width/height included so
+  gameplay can draw them directly from the installed appvars. Gameplay uses them
+  only when both appvars are present; otherwise it falls back to the solid board
+  background color.
 * Open the command prompt and navigate to where the makefile is. Type `make`,
   push enter, and watch it go.
 * If it all worked, TRICARDS.8xp will be in the CLIENT\bin folder.

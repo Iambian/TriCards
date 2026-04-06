@@ -1,5 +1,7 @@
 #include <string.h>
 
+#include <fileioc.h>
+
 #include "tricards.h"
 
 #define CARD_CAPTURE_FADE_TO_WHITE_FRAMES 8
@@ -9,6 +11,98 @@
 #define AI_SCORE_WIN 100000
 #define AI_SCORE_MIN (-AI_SCORE_WIN * 2)
 #define AI_SCORE_MAX (AI_SCORE_WIN * 2)
+#define GAME_BACKGROUND_LEFT_VAR_NAME "TRICARDL"
+#define GAME_BACKGROUND_RIGHT_VAR_NAME "TRICARDR"
+#define GAME_BACKGROUND_HALF_WIDTH 160
+
+static ti_var_t game_background_left_file;
+static ti_var_t game_background_right_file;
+static gfx_sprite_t *game_background_left_sprite;
+static gfx_sprite_t *game_background_right_sprite;
+static bool game_background_loaded;
+static bool game_background_checked;
+
+static void closegamebackgroundfiles(void) {
+    if (game_background_left_file) {
+        ti_Close(game_background_left_file);
+        game_background_left_file = 0;
+    }
+    if (game_background_right_file) {
+        ti_Close(game_background_right_file);
+        game_background_right_file = 0;
+    }
+    game_background_left_sprite = NULL;
+    game_background_right_sprite = NULL;
+    game_background_loaded = false;
+}
+
+void closegamebackground(void) {
+    closegamebackgroundfiles();
+    game_background_checked = false;
+}
+
+static bool isgamebackgroundspritevalid(const gfx_sprite_t *sprite) {
+    const uint8_t *sprite_data;
+
+    if (sprite == NULL) {
+        return false;
+    }
+    sprite_data = (const uint8_t *)sprite;
+    return sprite_data[0] == GAME_BACKGROUND_HALF_WIDTH && sprite_data[1] == LCD_HEIGHT;
+}
+
+static bool opengamebackgroundhalf(const char *var_name, ti_var_t *file, gfx_sprite_t **sprite) {
+    uint8_t *data;
+
+    *file = ti_Open(var_name, "r");
+    if (!*file) {
+        return false;
+    }
+
+    data = ti_GetDataPtr(*file);
+    if (!isgamebackgroundspritevalid((const gfx_sprite_t *)data)) {
+        ti_Close(*file);
+        *file = 0;
+        return false;
+    }
+
+    *sprite = (gfx_sprite_t *)data;
+    return true;
+}
+
+static void opengamebackground(void) {
+    if (game_background_loaded || game_background_checked) {
+        return;
+    }
+
+    game_background_checked = true;
+    closegamebackgroundfiles();
+    if (!opengamebackgroundhalf(
+            GAME_BACKGROUND_LEFT_VAR_NAME,
+            &game_background_left_file,
+            &game_background_left_sprite
+        )
+        || !opengamebackgroundhalf(
+            GAME_BACKGROUND_RIGHT_VAR_NAME,
+            &game_background_right_file,
+            &game_background_right_sprite
+        )) {
+        closegamebackgroundfiles();
+        return;
+    }
+
+    game_background_loaded = true;
+}
+
+static void drawgamebackground(void) {
+    if (!game_background_loaded) {
+        gfx_FillScreen(GAMEBOARD_BG);
+        return;
+    }
+
+    gfx_Sprite_NoClip(game_background_left_sprite, 0, 0);
+    gfx_Sprite_NoClip(game_background_right_sprite, GAME_BACKGROUND_HALF_WIDTH, 0);
+}
 
 static uint16_t getplayerbgcolor(uint8_t isplayer1) {
     return gfx_palette[isplayer1 ? PLAYER1_BG : PLAYER2_BG];
@@ -1195,6 +1289,7 @@ void initGame(uint8_t *packptr) {
             }
         }
     }
+    opengamebackground();
     curplayer = 0;
     selcard = 0;
     selcard = selectfromhand(DIR_NONE);
@@ -1205,7 +1300,7 @@ void redrawboard(void) {
     uint8_t i, t;
 
     updatecardtransitions();
-    gfx_FillScreen(GAMEBOARD_BG);
+    drawgamebackground();
 
     for (i = 0; i < 9; i++) {
         t = elementgrid[i];

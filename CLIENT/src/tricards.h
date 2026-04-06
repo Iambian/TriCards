@@ -227,6 +227,7 @@ void textscale1(void);
 void dmenu(char **strarr, uint8_t curopt, uint8_t maxopt);
 void pcharxy(char c, int x, uint8_t y);
 void drawbg(void);
+void closegamebackground(void);
 
 char *selectpack(void);
 uint8_t countpacks(void);

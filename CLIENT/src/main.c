@@ -458,9 +458,12 @@ int main(void) {
             kb_Scan();
             k = kb_Data[1];
             k7= kb_Data[7];
-            if (gamemode == GM_TITLE && packptr != NULL) {
-                closepack();
-                packptr = NULL;
+            if (gamemode == GM_TITLE) {
+                closegamebackground();
+                if (packptr != NULL) {
+                    closepack();
+                    packptr = NULL;
+                }
             }
             if (k|k7) keywait();
             if (gamemode==GM_TITLE) {
@@ -735,6 +738,7 @@ int main(void) {
         gfx_SwapDraw();
         waitanykey();
     }
+    closegamebackground();
     closepack();
     gfx_End();
     return 0;
