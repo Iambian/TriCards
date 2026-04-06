@@ -1,14 +1,14 @@
 #include <string.h>
 
 #include <compression.h>
-#include <fileioc.h>
 
 #include "tricards.h"
+#include "storage.h"
 
-static ti_var_t current_pack_file;
-static ti_var_t current_shard_file;
-static uint8_t *current_pack_ptr;
-static uint8_t *current_shard_ptr;
+static storage_blob_t current_pack_blob;
+static storage_blob_t current_shard_blob;
+static const uint8_t *current_pack_ptr;
+static const uint8_t *current_shard_ptr;
 static char current_pack_name[TRICARD_VAR_NAME_LENGTH + 1];
 static char current_shard_name[TRICARD_VAR_NAME_LENGTH + 1];
 
@@ -43,27 +43,22 @@ static bool isshardpack(const tricard_pack_header_t *header) {
 }
 
 static void closeshard(void) {
-    if (current_shard_file) {
-        ti_Close(current_shard_file);
-        current_shard_file = 0;
-    }
+    storage_close_blob(&current_shard_blob);
     current_shard_ptr = NULL;
     current_shard_name[0] = 0;
 }
 
-static bool openpackfile(const char *var_name, ti_var_t *handle, uint8_t **packptr) {
-    *handle = ti_Open(var_name, "r");
-    if (!*handle) {
+static bool openpackfile(const char *var_name, storage_blob_t *blob, const uint8_t **packptr) {
+    if (!storage_open_blob(var_name, blob)) {
         return false;
     }
 
-    *packptr = ti_GetDataPtr(*handle);
-    if (*packptr == NULL) {
-        ti_Close(*handle);
-        *handle = 0;
+    if (blob->size < sizeof(tricard_pack_header_t)) {
+        storage_close_blob(blob);
         return false;
     }
 
+    *packptr = blob->data;
     return true;
 }
 
@@ -117,7 +112,10 @@ static uint16_t getmanifestshardcount(const tricard_pack_header_t *header) {
     return (uint16_t)(directory_size / sizeof(tricard_manifest_shard_t));
 }
 
-static const tricard_manifest_shard_t *getmanifestshardentry(uint8_t *packptr, uint16_t shard_index) {
+static const tricard_manifest_shard_t *getmanifestshardentry(
+    const uint8_t *packptr,
+    uint16_t shard_index
+) {
     const tricard_pack_header_t *header;
     const tricard_manifest_shard_t *entries;
     uint16_t shard_count;
@@ -132,9 +130,9 @@ static const tricard_manifest_shard_t *getmanifestshardentry(uint8_t *packptr, u
     return &entries[shard_index];
 }
 
-static const tricard_card_metadata_t *getlocalcardmetadata(uint8_t *packptr, uint16_t cardnum) {
+static const tricard_card_metadata_t *getlocalcardmetadata(const uint8_t *packptr, uint16_t cardnum) {
     const tricard_pack_header_t *header;
-    uint8_t *record_base;
+    const uint8_t *record_base;
     uint16_t record_size;
 
     header = getpackheader(packptr);
@@ -151,7 +149,10 @@ static const tricard_card_metadata_t *getlocalcardmetadata(uint8_t *packptr, uin
     return (const tricard_card_metadata_t *)(record_base + (cardnum * record_size));
 }
 
-static bool openmanifestshard(uint8_t *manifestptr, const tricard_manifest_shard_t *entry) {
+static bool openmanifestshard(
+    const uint8_t *manifestptr,
+    const tricard_manifest_shard_t *entry
+) {
     const tricard_pack_header_t *manifest_header;
     const tricard_pack_header_t *shard_header;
     char shard_var_name[TRICARD_VAR_NAME_LENGTH + 1];
@@ -167,7 +168,7 @@ static bool openmanifestshard(uint8_t *manifestptr, const tricard_manifest_shard
 
     manifest_header = getpackheader(manifestptr);
     closeshard();
-    if (!openpackfile(shard_var_name, &current_shard_file, &current_shard_ptr)) {
+    if (!openpackfile(shard_var_name, &current_shard_blob, &current_shard_ptr)) {
         return false;
     }
 
@@ -190,7 +191,11 @@ static bool openmanifestshard(uint8_t *manifestptr, const tricard_manifest_shard
     return true;
 }
 
-static uint8_t *resolvepackpayload(uint8_t *packptr, uint16_t cardnum, uint16_t *local_cardnum) {
+static const uint8_t *resolvepackpayload(
+    const uint8_t *packptr,
+    uint16_t cardnum,
+    uint16_t *local_cardnum
+) {
     const tricard_pack_header_t *header;
     const tricard_manifest_shard_t *entry;
     uint16_t shard_index;
@@ -273,66 +278,46 @@ static bool transformcardimagedata(
 }
 
 uint8_t countpacks(void) {
-    void *vat_ptr;
     uint8_t count;
+    uint8_t manifest_count;
 
-    count = 0;
-    vat_ptr = NULL;
-    while (ti_Detect(&vat_ptr, TRICARD_SINGLE_FILE_MAGIC)) {
-        if (count == 0xFF) {
-            return count;
-        }
-        count++;
+    count = storage_count_by_magic(TRICARD_SINGLE_FILE_MAGIC);
+    manifest_count = storage_count_by_magic(TRICARD_MANIFEST_MAGIC);
+    if (manifest_count > (uint8_t)(0xFF - count)) {
+        return 0xFF;
     }
-
-    vat_ptr = NULL;
-    while (ti_Detect(&vat_ptr, TRICARD_MANIFEST_MAGIC)) {
-        if (count == 0xFF) {
-            return count;
-        }
-        count++;
-    }
-
-    return count;
+    return (uint8_t)(count + manifest_count);
 }
 
 bool getpackname(uint8_t pack_index, char *out_name) {
-    void *vat_ptr;
-    char *var_name;
-    uint8_t current_index;
+    uint8_t single_file_count;
 
     if (out_name == NULL) {
         return false;
     }
 
-    current_index = 0;
-    vat_ptr = NULL;
-    while ((var_name = ti_Detect(&vat_ptr, TRICARD_SINGLE_FILE_MAGIC)) != NULL) {
-        if (current_index == pack_index) {
-            copyvarname(out_name, var_name);
-            return true;
-        }
-        current_index++;
+    if (storage_get_name_by_magic(TRICARD_SINGLE_FILE_MAGIC, pack_index, out_name)) {
+        return true;
     }
-
-    vat_ptr = NULL;
-    while ((var_name = ti_Detect(&vat_ptr, TRICARD_MANIFEST_MAGIC)) != NULL) {
-        if (current_index == pack_index) {
-            copyvarname(out_name, var_name);
-            return true;
-        }
-        current_index++;
+    single_file_count = storage_count_by_magic(TRICARD_SINGLE_FILE_MAGIC);
+    if (pack_index >= single_file_count
+        && storage_get_name_by_magic(
+            TRICARD_MANIFEST_MAGIC,
+            (uint8_t)(pack_index - single_file_count),
+            out_name
+        )) {
+        return true;
     }
 
     out_name[0] = 0;
     return false;
 }
 
-uint8_t *getpackadr(char *vn) {
+const uint8_t *getpackadr(const char *vn) {
     const tricard_pack_header_t *header;
 
     closepack();
-    if (!openpackfile(vn, &current_pack_file, &current_pack_ptr)) {
+    if (!openpackfile(vn, &current_pack_blob, &current_pack_ptr)) {
         return NULL;
     }
 
@@ -352,22 +337,19 @@ uint8_t *getpackadr(char *vn) {
 
 void closepack(void) {
     closeshard();
-    if (current_pack_file) {
-        ti_Close(current_pack_file);
-        current_pack_file = 0;
-    }
+    storage_close_blob(&current_pack_blob);
     current_pack_ptr = NULL;
     current_pack_name[0] = 0;
 }
 
-const tricard_pack_header_t *getpackheader(uint8_t *packptr) {
+const tricard_pack_header_t *getpackheader(const uint8_t *packptr) {
     if (packptr == NULL) {
         return NULL;
     }
     return (const tricard_pack_header_t *)packptr;
 }
 
-const char *getpackdescription(uint8_t *packptr) {
+const char *getpackdescription(const uint8_t *packptr) {
     const tricard_pack_header_t *header;
 
     header = getpackheader(packptr);
@@ -377,7 +359,7 @@ const char *getpackdescription(uint8_t *packptr) {
     return (const char *)(packptr + header->description_offset);
 }
 
-uint16_t getpackcardcount(uint8_t *packptr) {
+uint16_t getpackcardcount(const uint8_t *packptr) {
     const tricard_pack_header_t *header;
 
     header = getpackheader(packptr);
@@ -387,9 +369,9 @@ uint16_t getpackcardcount(uint8_t *packptr) {
     return header->card_count;
 }
 
-const tricard_card_metadata_t *getcardmetadata(uint8_t *packptr, uint16_t cardnum) {
+const tricard_card_metadata_t *getcardmetadata(const uint8_t *packptr, uint16_t cardnum) {
     uint16_t local_cardnum;
-    uint8_t *resolved_packptr;
+    const uint8_t *resolved_packptr;
 
     resolved_packptr = resolvepackpayload(packptr, cardnum, &local_cardnum);
     if (resolved_packptr == NULL) {
@@ -399,10 +381,10 @@ const tricard_card_metadata_t *getcardmetadata(uint8_t *packptr, uint16_t cardnu
     return getlocalcardmetadata(resolved_packptr, local_cardnum);
 }
 
-const char *getcardname(uint8_t *packptr, uint16_t cardnum) {
+const char *getcardname(const uint8_t *packptr, uint16_t cardnum) {
     const tricard_card_metadata_t *metadata;
     uint16_t local_cardnum;
-    uint8_t *resolved_packptr;
+    const uint8_t *resolved_packptr;
 
     resolved_packptr = resolvepackpayload(packptr, cardnum, &local_cardnum);
     if (resolved_packptr == NULL) {
@@ -431,7 +413,7 @@ void resetcardslot(uint8_t cardslot) {
     memset(buffer + 2, CARD_IMAGE_TRANSPARENT_SENTINEL, CARD_WIDTH * CARD_HEIGHT);
 }
 
-bool loadcardslot(uint8_t *packptr, uint16_t cardnum, uint8_t cardslot) {
+bool loadcardslot(const uint8_t *packptr, uint16_t cardnum, uint8_t cardslot) {
     const tricard_pack_header_t *header;
     const tricard_card_metadata_t *metadata;
     const uint16_t *palette_data;
@@ -439,7 +421,7 @@ bool loadcardslot(uint8_t *packptr, uint16_t cardnum, uint8_t cardslot) {
     tricard_card_slot_t *slot;
     uint16_t local_cardnum;
     uint8_t palette_entries;
-    uint8_t *resolved_packptr;
+    const uint8_t *resolved_packptr;
     uint8_t *sprite_data;
 
     resolved_packptr = resolvepackpayload(packptr, cardnum, &local_cardnum);

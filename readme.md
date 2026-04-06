@@ -70,6 +70,9 @@ What has been changed so far:
 * `CLIENT\src\main.c` has been split so the client is now organized around
   `main.c`, `card_loading.c`, `gameplay.c`, and the shared declarations in
   `tricards.h`.
+* CE-specific external data access now goes through `CLIENT\src\storage.c`,
+  which exposes stable read-only blob views so higher-level gameplay and pack
+  code no longer call `fileioc` directly.
 * Internal client assets are no longer using the old implicit xlibc-only setup.
   `make gfx` now generates a shared internal palette from `convimg.yaml`, and
   the client loads that palette at runtime.

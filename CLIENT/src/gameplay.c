@@ -1,8 +1,7 @@
 #include <string.h>
 
-#include <fileioc.h>
-
 #include "tricards.h"
+#include "storage.h"
 
 #define CARD_CAPTURE_FADE_TO_WHITE_FRAMES 8
 #define CARD_CAPTURE_FADE_TO_TARGET_FRAMES 8
@@ -15,22 +14,16 @@
 #define GAME_BACKGROUND_RIGHT_VAR_NAME "TRICARDR"
 #define GAME_BACKGROUND_HALF_WIDTH 160
 
-static ti_var_t game_background_left_file;
-static ti_var_t game_background_right_file;
+static storage_blob_t game_background_left_blob;
+static storage_blob_t game_background_right_blob;
 static gfx_sprite_t *game_background_left_sprite;
 static gfx_sprite_t *game_background_right_sprite;
 static bool game_background_loaded;
 static bool game_background_checked;
 
 static void closegamebackgroundfiles(void) {
-    if (game_background_left_file) {
-        ti_Close(game_background_left_file);
-        game_background_left_file = 0;
-    }
-    if (game_background_right_file) {
-        ti_Close(game_background_right_file);
-        game_background_right_file = 0;
-    }
+    storage_close_blob(&game_background_left_blob);
+    storage_close_blob(&game_background_right_blob);
     game_background_left_sprite = NULL;
     game_background_right_sprite = NULL;
     game_background_loaded = false;
@@ -41,32 +34,33 @@ void closegamebackground(void) {
     game_background_checked = false;
 }
 
-static bool isgamebackgroundspritevalid(const gfx_sprite_t *sprite) {
+static bool isgamebackgroundspritevalid(const storage_blob_t *blob) {
     const uint8_t *sprite_data;
 
-    if (sprite == NULL) {
+    if (blob == NULL
+        || blob->data == NULL
+        || blob->size != (size_t)(GAME_BACKGROUND_HALF_WIDTH * LCD_HEIGHT + 2)) {
         return false;
     }
-    sprite_data = (const uint8_t *)sprite;
+    sprite_data = blob->data;
     return sprite_data[0] == GAME_BACKGROUND_HALF_WIDTH && sprite_data[1] == LCD_HEIGHT;
 }
 
-static bool opengamebackgroundhalf(const char *var_name, ti_var_t *file, gfx_sprite_t **sprite) {
-    uint8_t *data;
-
-    *file = ti_Open(var_name, "r");
-    if (!*file) {
+static bool opengamebackgroundhalf(
+    const char *var_name,
+    storage_blob_t *blob,
+    gfx_sprite_t **sprite
+) {
+    if (!storage_open_blob(var_name, blob)) {
         return false;
     }
 
-    data = ti_GetDataPtr(*file);
-    if (!isgamebackgroundspritevalid((const gfx_sprite_t *)data)) {
-        ti_Close(*file);
-        *file = 0;
+    if (!isgamebackgroundspritevalid(blob)) {
+        storage_close_blob(blob);
         return false;
     }
 
-    *sprite = (gfx_sprite_t *)data;
+    *sprite = (gfx_sprite_t *)blob->data;
     return true;
 }
 
@@ -79,12 +73,12 @@ static void opengamebackground(void) {
     closegamebackgroundfiles();
     if (!opengamebackgroundhalf(
             GAME_BACKGROUND_LEFT_VAR_NAME,
-            &game_background_left_file,
+            &game_background_left_blob,
             &game_background_left_sprite
         )
         || !opengamebackgroundhalf(
             GAME_BACKGROUND_RIGHT_VAR_NAME,
-            &game_background_right_file,
+            &game_background_right_blob,
             &game_background_right_sprite
         )) {
         closegamebackgroundfiles();
@@ -1312,7 +1306,7 @@ bool getplayer2aimove(uint8_t *out_card_slot, uint8_t *out_gridpos) {
     return true;
 }
 
-void initGame(uint8_t *packptr) {
+void initGame(const uint8_t *packptr) {
     uint16_t card_count;
     uint8_t i;
 

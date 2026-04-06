@@ -15,7 +15,6 @@
 #include <string.h>
 
 #include <compression.h>
-#include <fileioc.h>
 #include <graphx.h>
 #include <keypadc.h>
 
@@ -424,7 +423,9 @@ static uint8_t getbrowserpageoptions(uint16_t card_count, uint8_t page) {
 
 int main(void) {
     char *varname,*cardtypestr;
-    uint8_t *packptr,*dataptr,i,y,copt,mopt,cpage,mpage;
+    const uint8_t *packptr;
+    uint8_t *dataptr;
+    uint8_t i,y,copt,mopt,cpage,mpage;
     uint16_t card_count;
     uint16_t card_index;
     uint8_t cardposbackup;
@@ -774,7 +775,8 @@ void drawbg(void) { gfx_FillScreen(FILE_EXPLORER_BGCOLOR); }
 char *selectpack(void) {
     static char selected_pack_name[TRICARD_VAR_NAME_LENGTH + 1];
     char pack_name[TRICARD_VAR_NAME_LENGTH + 1];
-    uint8_t *packptr,i;
+    const uint8_t *packptr;
+    uint8_t i;
     uint16_t card_count;
     int x;
     char pack_identifier[10];

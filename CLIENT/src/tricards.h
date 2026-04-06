@@ -233,15 +233,15 @@ void closegamebackground(void);
 char *selectpack(void);
 uint8_t countpacks(void);
 bool getpackname(uint8_t pack_index, char *out_name);
-uint8_t *getpackadr(char *varname);
+const uint8_t *getpackadr(const char *varname);
 void closepack(void);
-const tricard_pack_header_t *getpackheader(uint8_t *packptr);
-const tricard_card_metadata_t *getcardmetadata(uint8_t *packptr, uint16_t cardnum);
-const char *getpackdescription(uint8_t *packptr);
-uint16_t getpackcardcount(uint8_t *packptr);
-const char *getcardname(uint8_t *packptr, uint16_t cardnum);
+const tricard_pack_header_t *getpackheader(const uint8_t *packptr);
+const tricard_card_metadata_t *getcardmetadata(const uint8_t *packptr, uint16_t cardnum);
+const char *getpackdescription(const uint8_t *packptr);
+uint16_t getpackcardcount(const uint8_t *packptr);
+const char *getcardname(const uint8_t *packptr, uint16_t cardnum);
 void resetcardslot(uint8_t cardslot);
-bool loadcardslot(uint8_t *packptr, uint16_t cardnum, uint8_t cardslot);
+bool loadcardslot(const uint8_t *packptr, uint16_t cardnum, uint8_t cardslot);
 
 void redrawboard(void);
 uint8_t selectfromhand(uint8_t direction);
@@ -249,7 +249,7 @@ tricard_card_slot_t *getcardongrid(uint8_t gridpos);
 bool getplayer2aimove(uint8_t *out_card_slot, uint8_t *out_gridpos);
 void cardfight(uint8_t pidx, uint8_t eidx);
 void resolvecardplacement(uint8_t gridpos);
-void initGame(uint8_t *packptr);
+void initGame(const uint8_t *packptr);
 bool startsuddendeathround(void);
 
 #endif
