@@ -46,12 +46,15 @@ Version 2 pack builder (`BUILDER\tools\tkit2.py`)
 
 Building Pack Viewer / Game Player
 ----------------------------------
-* Download and install the ZDS-based CE C Software Development Kit (v7.5)
-  https://github.com/CE-Programming/toolchain/releases/tag/v7.5 and install it.
-  idk how to modify to make it work on v8.x, will add instructions later if needed.
+* Download and install CE C toolchain v12.1 from
+  https://github.com/CE-Programming/toolchain/releases
 * The client static graphics are now generated from `CLIENT\src\gfx\convimg.yaml`.
   From `CLIENT\`, run `make gfx` before `make` whenever the graphics config or
   source PNGs change.
+* `make gfx` also builds the optional fullscreen board-mat halves
+  `TRICARDL.8xv` and `TRICARDR.8xv` into `CLIENT\src\gfx\out`. These come from
+  `board-mat-L.png` and `board-mat-R.png`, are quantized against the shared
+  `internal_palette`, and are not wired into the client runtime yet.
 * Open the command prompt and navigate to where the makefile is. Type `make`,
   push enter, and watch it go.
 * If it all worked, TRICARDS.8xp will be in the CLIENT\bin folder.

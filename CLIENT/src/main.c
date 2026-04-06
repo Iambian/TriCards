@@ -19,10 +19,10 @@
 #include <graphx.h>
 #include <keypadc.h>
 
-#include "gfx/element_gfx.h"
-#include "gfx/internal_palette.h"
-#include "gfx/num_gfx.h"
-#include "gfx/misc_gfx.h"
+#include "gfx/out/element_gfx.h"
+#include "gfx/out/internal_palette.h"
+#include "gfx/out/num_gfx.h"
+#include "gfx/out/misc_gfx.h"
 
 int posarr[] = {
     0,0,

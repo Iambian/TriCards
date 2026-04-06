@@ -2,6 +2,9 @@
 /CLIENT/obj
 /CLIENT/src/gfx/*.c
 /CLIENT/src/gfx/*.h
+/CLIENT/src/gfx/out/*.c
+/CLIENT/src/gfx/out/*.h
+/CLIENT/src/gfx/out/*.8xv
 /CLIENT/src/gfx/*.log
 /BUILDER/bin
 /BUILDER/obj

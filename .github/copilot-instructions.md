@@ -93,3 +93,30 @@ On the builder side, `tkit2.py` reads `data.json` plus source images, detects wh
   - The client implements a logical-pack layer that treats manifest appvars as logical packs and resolves global card indices to the correct shard payload. Key helpers: resolvepackpayload(), openmanifestshard(), loadcardslot().
   - The client decompresses card images into per-slot in-memory buffers and closes shards when possible; it no longer keeps persistent pointers into opened appvar payloads.
   - Missing or incompatible shards currently cause load failures at runtime; consider adding manifest validation at selection time to improve UX.
+
+# Additional instructions
+
+The client software is built in C and runs on the TI-84+ CE platform. The
+overall documentation for the toolchain used in this is available at
+https://ce-programming.github.io/toolchain/index.html. At that site is additional
+information regarding the following topics:
+- graphx library: https://ce-programming.github.io/toolchain/libraries/graphx.html
+- Nonstandard file I/O: https://ce-programming.github.io/toolchain/libraries/fileioc.html
+- Keyboard input: https://ce-programming.github.io/toolchain/libraries/keypadc.html
+- Decompression routines: https://ce-programming.github.io/toolchain/headers/compression.html
+- Linking and using ASM routines: https://ce-programming.github.io/toolchain/static/asm.html
+
+The TI-84+ CE memory layout is documented at https://ce-programming.github.io/toolchain/static/faq.html, but here's the key takeaways:
+- The .text (code), .data, and .rodata sections are loaded into user RAM at runtime. The program will not run if the user does not have enough free RAM.
+Runtime libraries are also loaded at runtime and are loaded into this area.
+- The stack is also located in user RAM and is fixed to 4KB. The stack uses
+a hardware guard to trigger a crash if it overflows.
+- The heap and the .bss share a separate area of RAM that is typically used for
+buffering the graph and homescreen, so it can be freely used and discarded as
+needed. Thus, freeing heap allocations is unnecessary at the end of the program.
+A call to a dedicated full screen buffer clear is sufficient. Nobody does this.
+This area is 60989 bytes large.
+- The graphx library should be used for all graphics operations. The memory
+layout of the screen is documented there.
+
+The documentation for modifying client/src/gfx/convimg.yaml and regenerating the graphics code is available at https://github.com/mateoconlechuga/convimg. The convimg tool is used to generate optimized sprite sheets and palette data from source PNGs, and the generated .c/.h files are checked in as part of the repository. To modify the internal graphics, edit the source PNGs and/or `convimg.yaml`, then run `make gfx` from the `CLIENT\` directory to regenerate the graphics code.

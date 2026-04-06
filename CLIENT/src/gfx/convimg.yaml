@@ -29,6 +29,8 @@ palettes:
       - holy.png
       - numtiles.png
       - cardback.png
+      - board-mat-L.png
+      - board-mat-R.png
 
 converts:
   - name: element_gfx
@@ -66,24 +68,58 @@ converts:
     images:
       - cardback.png
 
+  - name: board_mat_left
+    palette: internal_palette
+    palette-offset: 0
+    transparent-index: 0
+    images:
+      - board-mat-L.png
+
+  - name: board_mat_right
+    palette: internal_palette
+    palette-offset: 0
+    transparent-index: 0
+    images:
+      - board-mat-R.png
+
 outputs:
   - type: c
+    directory: out
     palettes:
       - internal_palette
     prepend-palette-sizes: true
     const: true
 
   - type: c
+    directory: out
     include-file: element_gfx.h
     converts:
       - element_gfx
 
   - type: c
+    directory: out
     include-file: num_gfx.h
     converts:
       - num_gfx
 
   - type: c
+    directory: out
     include-file: misc_gfx.h
     converts:
       - misc_gfx
+
+  - type: appvar
+    directory: out
+    name: TRICARDL
+    archived: true
+    source-format: none
+    converts:
+      - board_mat_left
+
+  - type: appvar
+    directory: out
+    name: TRICARDR
+    archived: true
+    source-format: none
+    converts:
+      - board_mat_right
