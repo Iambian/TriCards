@@ -203,7 +203,8 @@ extern uint8_t selcard;
 extern uint8_t curplayer;
 extern uint8_t player2_ai_difficulty;
 extern uint8_t ruleFlags;
-extern uint8_t issuddendeath;
+extern bool sudden_death_active;
+extern bool ai_thinking;
 
 extern uint8_t *elemdat[9];
 extern tricard_card_slot_t *cardbuf[CARD_SLOT_COUNT];
@@ -249,5 +250,6 @@ bool getplayer2aimove(uint8_t *out_card_slot, uint8_t *out_gridpos);
 void cardfight(uint8_t pidx, uint8_t eidx);
 void resolvecardplacement(uint8_t gridpos);
 void initGame(uint8_t *packptr);
+bool startsuddendeathround(void);
 
 #endif

@@ -63,7 +63,8 @@ uint8_t selcard;
 uint8_t curplayer;
 uint8_t player2_ai_difficulty = PLAYER2_AI_HARD;
 uint8_t ruleFlags;
-uint8_t issuddendeath;
+bool sudden_death_active;
+bool ai_thinking;
 
 uint8_t *elemdat[9];
 tricard_card_slot_t card_slots[CARD_SLOT_COUNT];
@@ -338,10 +339,12 @@ static bool isselectedcardplacementvalid(void) {
     return true;
 }
 
-static uint8_t finishselectedmove(uint8_t *packptr) {
+static uint8_t finishselectedmove(void) {
     uint8_t i;
+    uint8_t placed_card_count;
     uint8_t player1_count;
     uint8_t player2_count;
+    bool continue_sudden_death;
 
     if (!isselectedcardplacementvalid()) {
         return MOVE_RESOLUTION_INVALID;
@@ -350,17 +353,13 @@ static uint8_t finishselectedmove(uint8_t *packptr) {
     cardbuf[selcard]->playstate = 2;
     resolvecardplacement(cardbuf[selcard]->gridpos);
 
-    for (i = player1_count = player2_count = 0; i < GAME_CARD_SLOT_COUNT; i++) {
+    for (i = placed_card_count = 0; i < GAME_CARD_SLOT_COUNT; i++) {
         if (cardbuf[i]->gridpos < 10) {
-            if (cardbuf[i]->isplayer1) {
-                player1_count++;
-            } else {
-                player2_count++;
-            }
+            placed_card_count++;
         }
     }
 
-    if (player1_count + player2_count == 9 || issuddendeath == 2) {
+    if (placed_card_count == 9) {
         for (i = player1_count = player2_count = 0; i < GAME_CARD_SLOT_COUNT; i++) {
             if (cardbuf[i]->isplayer1) {
                 player1_count++;
@@ -368,6 +367,8 @@ static uint8_t finishselectedmove(uint8_t *packptr) {
                 player2_count++;
             }
         }
+
+        continue_sudden_death = false;
         redrawboard();
         if (player1_count > player2_count) {
             gfx_PrintStringXY("Player 1 has won!",5,230);
@@ -377,17 +378,18 @@ static uint8_t finishselectedmove(uint8_t *packptr) {
             gfx_PrintStringXY("The game ended in a draw!",5,230);
             if (ruleFlags & RULE_SUDDENDEATH) {
                 gfx_PrintString(" Sudden Death!");
-                issuddendeath = 1;
-                initGame(packptr);
+                continue_sudden_death = true;
             }
-        }
-        if (issuddendeath != 1) {
-            gamemode = GM_TITLE;
-        } else {
-            gamemode = GM_SELECTINGCARDS;
         }
         gfx_SwapDraw();
         waitanykey();
+
+        if (continue_sudden_death && startsuddendeathround()) {
+            gamemode = GM_SELECTINGCARDS;
+        } else {
+            sudden_death_active = false;
+            gamemode = GM_TITLE;
+        }
         return MOVE_RESOLUTION_FINISHED_GAME;
     }
 
@@ -459,6 +461,8 @@ int main(void) {
             k = kb_Data[1];
             k7= kb_Data[7];
             if (gamemode == GM_TITLE) {
+                sudden_death_active = false;
+                ai_thinking = false;
                 closegamebackground();
                 if (packptr != NULL) {
                     closepack();
@@ -658,7 +662,6 @@ int main(void) {
                 if (k & kb_2nd) {
                     if (copt == 0) {
                         initGame(packptr);
-                        issuddendeath = 0;
                         gamemode = GM_SELECTINGCARDS;
                     } else {
                         toggleruleoption(copt);
@@ -673,6 +676,9 @@ int main(void) {
                     uint8_t ai_card_index;
                     uint8_t ai_gridpos;
 
+                    ai_thinking = true;
+                    redrawboard();
+                    gfx_SwapDraw();
                     move_result = MOVE_RESOLUTION_INVALID;
                     if (getplayer2aimove(&ai_card_index, &ai_gridpos)) {
                         uint8_t ai_cardposbackup;
@@ -680,10 +686,13 @@ int main(void) {
                         ai_cardposbackup = cardbuf[ai_card_index]->gridpos;
                         selcard = ai_card_index;
                         cardbuf[selcard]->gridpos = ai_gridpos;
-                        move_result = finishselectedmove(packptr);
+                        ai_thinking = false;
+                        move_result = finishselectedmove();
                         if (move_result == MOVE_RESOLUTION_INVALID) {
                             cardbuf[selcard]->gridpos = ai_cardposbackup;
                         }
+                    } else {
+                        ai_thinking = false;
                     }
                     if (move_result == MOVE_RESOLUTION_FINISHED_GAME) {
                         continue;
@@ -692,13 +701,17 @@ int main(void) {
                         redrawboard();
                     }
                 } else {
+                    ai_thinking = false;
                     i = 255;
                     if (k&kb_2nd) {
                         cardposbackup = cardbuf[selcard]->gridpos;
                         cardbuf[selcard]->gridpos = 5;
                         gamemode = GM_SELECTINGPLACE;
                     }
-                    if (k&kb_Mode) gamemode = GM_TITLE;
+                    if (k&kb_Mode) {
+                        sudden_death_active = false;
+                        gamemode = GM_TITLE;
+                    }
                     if (k7&kb_Up) i = selectfromhand(DIR_UP);
                     if (k7&kb_Down) i = selectfromhand(DIR_DOWN);
                     if (i < GAME_CARD_SLOT_COUNT) selcard = i;
@@ -720,7 +733,7 @@ int main(void) {
                 cardbuf[selcard]->gridpos = i;
                 redrawboard();
                 if (k&kb_2nd) {
-                    move_result = finishselectedmove(packptr);
+                    move_result = finishselectedmove();
                     if (move_result == MOVE_RESOLUTION_FINISHED_GAME) {
                         continue;
                     }

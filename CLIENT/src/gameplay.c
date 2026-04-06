@@ -172,6 +172,71 @@ static void updatecardtransitions(void) {
     }
 }
 
+static void resetcardtransition(tricard_card_slot_t *card) {
+    card->color_transition_active = 0;
+    card->color_transition_frame = 0;
+    card->color_transition_source = 0;
+    card->color_transition_target = 0;
+}
+
+static const char *getturnindicatorlabel(void) {
+    if (curplayer == 0) {
+        return "Turn: Player 1";
+    }
+    if (player2_ai_difficulty == PLAYER2_CONTROL_MANUAL) {
+        return "Turn: Player 2";
+    }
+    return "Turn: AI";
+}
+
+static void drawgamehud(void) {
+    const char *status_lines[3];
+    uint8_t line_count;
+    uint8_t i;
+    uint8_t box_x;
+    uint8_t box_y;
+    uint8_t box_w;
+    uint8_t box_h;
+    uint8_t text_y;
+    uint16_t max_width;
+    uint16_t current_width;
+
+    line_count = 0;
+    if (sudden_death_active) {
+        status_lines[line_count++] = "Sudden Death";
+    }
+    status_lines[line_count++] = getturnindicatorlabel();
+    if (ai_thinking) {
+        status_lines[line_count++] = "AI thinking...";
+    }
+
+    max_width = 0;
+    for (i = 0; i < line_count; i++) {
+        current_width = gfx_GetStringWidth(status_lines[i]);
+        if (current_width > max_width) {
+            max_width = current_width;
+        }
+    }
+
+    box_w = (uint8_t)(max_width + 12);
+    box_h = (uint8_t)(line_count * 8 + 6);
+    box_x = (uint8_t)((LCD_WIDTH - box_w) / 2);
+    box_y = 4;
+
+    gfx_SetColor(FILE_EXPLORER_BGCOLOR);
+    gfx_FillRectangle_NoClip(box_x, box_y, box_w, box_h);
+    gfx_SetColor(INTERNAL_BLACK_COLOR);
+    gfx_Rectangle_NoClip(box_x, box_y, box_w, box_h);
+    gfx_SetTextFGColor(MENU_TEXT_COLOR);
+    for (i = 0, text_y = (uint8_t)(box_y + 3); i < line_count; i++, text_y += 8) {
+        gfx_PrintStringXY(
+            (char *)status_lines[i],
+            (LCD_WIDTH - gfx_GetStringWidth(status_lines[i])) / 2,
+            text_y
+        );
+    }
+}
+
 static void drawcard(tricard_card_slot_t *card, bool selected) {
     int x, y, cx, cy;
     uint8_t gpos;
@@ -430,9 +495,6 @@ static bool capturecard(tricard_card_slot_t *source_card, tricard_card_slot_t *t
     source_color = getcardtransitioncolor(target_card);
     target_card->isplayer1 = source_card->isplayer1;
     startcardtransition(target_card, source_color, getplayerbgcolor(target_card->isplayer1));
-    if (issuddendeath == 1) {
-        issuddendeath++;
-    }
     return true;
 }
 
@@ -1263,6 +1325,8 @@ void initGame(uint8_t *packptr) {
     if (ruleFlags & RULE_RANDOM) {
         for (i = 0; i < GAME_CARD_SLOT_COUNT; i++) {
             if (!loadcardslot(packptr, randInt(0, card_count - 1), i)) {
+                sudden_death_active = false;
+                ai_thinking = false;
                 gamemode = GM_TITLE;
                 return;
             }
@@ -1270,17 +1334,18 @@ void initGame(uint8_t *packptr) {
             cardbuf[i]->isplayer1 = (i < 5) ? 1 : 0;
             cardbuf[i]->x = posarr[(i + 10) * 2];
             cardbuf[i]->y = posarr[(i + 10) * 2 + 1];
-            cardbuf[i]->playstate = 0;
+            cardbuf[i]->playstate = (ruleFlags & RULE_OPEN) ? 1 : 0;
+            resetcardtransition(cardbuf[i]);
         }
     } else {
+        sudden_death_active = false;
+        ai_thinking = false;
         gamemode = GM_TITLE;
-    }
-    if (ruleFlags & RULE_OPEN) {
-        for (i = 0; i < GAME_CARD_SLOT_COUNT; i++) {
-            cardbuf[i]->playstate = 1;
-        }
+        return;
     }
 
+    sudden_death_active = false;
+    ai_thinking = false;
     memset(elementgrid, 0, sizeof elementgrid);
     if (ruleFlags & RULE_ELEMENTAL) {
         for (i = 0; i < 9; i++) {
@@ -1296,11 +1361,70 @@ void initGame(uint8_t *packptr) {
     keywait();
 }
 
+bool startsuddendeathround(void) {
+    uint8_t i;
+    uint8_t player1_gridpos;
+    uint8_t player2_gridpos;
+
+    player1_gridpos = 10;
+    player2_gridpos = 15;
+    for (i = 0; i < GAME_CARD_SLOT_COUNT; i++) {
+        tricard_card_slot_t *card;
+        uint8_t hand_gridpos;
+
+        card = cardbuf[i];
+        if (card->isplayer1) {
+            if (player1_gridpos > 14) {
+                sudden_death_active = false;
+                ai_thinking = false;
+                return false;
+            }
+            hand_gridpos = player1_gridpos++;
+        } else {
+            if (player2_gridpos > 19) {
+                sudden_death_active = false;
+                ai_thinking = false;
+                return false;
+            }
+            hand_gridpos = player2_gridpos++;
+        }
+
+        card->gridpos = hand_gridpos;
+        card->x = posarr[hand_gridpos * 2];
+        card->y = posarr[hand_gridpos * 2 + 1];
+        card->playstate = (ruleFlags & RULE_OPEN) ? 1 : 0;
+        resetcardtransition(card);
+    }
+
+    if (player1_gridpos != 15 || player2_gridpos != 20) {
+        sudden_death_active = false;
+        ai_thinking = false;
+        return false;
+    }
+
+    sudden_death_active = true;
+    ai_thinking = false;
+    memset(elementgrid, 0, sizeof elementgrid);
+    if (ruleFlags & RULE_ELEMENTAL) {
+        for (i = 0; i < 9; i++) {
+            if (!randInt(0, 4)) {
+                elementgrid[i] = randInt(0, 7) + 1;
+            }
+        }
+    }
+    opengamebackground();
+    curplayer = 0;
+    selcard = 0;
+    selcard = selectfromhand(DIR_NONE);
+    return true;
+}
+
 void redrawboard(void) {
     uint8_t i, t;
 
     updatecardtransitions();
     drawgamebackground();
+    drawgamehud();
 
     for (i = 0; i < 9; i++) {
         t = elementgrid[i];

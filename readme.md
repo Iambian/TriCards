@@ -90,9 +90,14 @@ What has been changed so far:
   can transition at the same time.
 * The gameplay rule engine now supports FF8-style `Same`, `Same Wall`, `Plus`,
   and `Combo` resolution when those rule bits are enabled.
+* `Sudden Death` now starts a true rematch after a draw by redealing the cards
+  each side owned at the end of the drawn game instead of ending on the first
+  follow-up capture.
 * Starting a match now opens a centered pre-match rule-selection screen before
   gameplay begins. It defaults to `Open + Random + Elemental + Sudden Death`,
   keeps `Random` locked on, and lets `[Mode]` back out to card pack selection.
+* Gameplay now shows a small in-match HUD with the current turn and an explicit
+  `AI thinking...` status while the CPU is choosing a move.
 * Card preview storage now reuses gameplay slots for pack selection and keeps one
   extra browser preview slot; the card image pool is statically allocated
   instead of coming from the heap.
