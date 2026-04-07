@@ -17,6 +17,7 @@
 #include <compression.h>
 #include <graphx.h>
 #include <keypadc.h>
+#include <sys/rtc.h>
 
 #include "gfx/out/element_gfx.h"
 #include "gfx/out/internal_palette.h"
@@ -60,6 +61,7 @@ uint8_t curpack, maxpack;
 uint8_t gamemode;
 uint8_t selcard;
 uint8_t curplayer;
+uint8_t match_start_player;
 uint8_t player2_ai_difficulty = PLAYER2_AI_HARD;
 uint8_t ruleFlags;
 bool sudden_death_active;
@@ -438,6 +440,7 @@ int main(void) {
     gfx_SetTransparentColor(INTERNAL_TRANSPARENT_INDEX);
     cardposbackup = cpage = mpage = copt = mopt = gamemode = curpack = maxpack = 0;
     packptr = dataptr = NULL;
+    srandom(rtc_Time());
     for (i = 0; i < CARD_SLOT_COUNT; i++) {
         cardbuf[i] = &card_slots[i];
         cardbuf[i]->slot_index = i;

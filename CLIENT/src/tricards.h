@@ -201,6 +201,7 @@ extern uint8_t maxpack;
 extern uint8_t gamemode;
 extern uint8_t selcard;
 extern uint8_t curplayer;
+extern uint8_t match_start_player;
 extern uint8_t player2_ai_difficulty;
 extern uint8_t ruleFlags;
 extern bool sudden_death_active;

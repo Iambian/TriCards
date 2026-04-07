@@ -1349,7 +1349,8 @@ void initGame(const uint8_t *packptr) {
         }
     }
     opengamebackground();
-    curplayer = 0;
+    match_start_player = randInt(0, 1);
+    curplayer = match_start_player;
     selcard = 0;
     selcard = selectfromhand(DIR_NONE);
     keywait();
@@ -1407,7 +1408,7 @@ bool startsuddendeathround(void) {
         }
     }
     opengamebackground();
-    curplayer = 0;
+    curplayer = match_start_player;
     selcard = 0;
     selcard = selectfromhand(DIR_NONE);
     return true;
